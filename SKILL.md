@@ -656,6 +656,38 @@ first-class:
   (NEVER a running card's). Board writes go through `board_cards.merge_write` so a runner's full
   rebuild never clobbers the leader's `approve-card` verdict (no terminal→done downgrade).
 
+**Agent-side self-notification — arm a cron sentinel, don't rely on a bash watcher.** A
+detached run is first-class for the HUMAN (card + kanban % + log) but does NOT re-invoke
+the LEADER when it finishes — unlike queue tasks, which get a `wait` sentinel (see *Event-
+driven fast path* below). A session-bound watcher (`run_in_background`, `Monitor`) is
+killed silently on a new turn or compaction, so a multi-hour/day detached run leaves the
+leader blind between manual passes. The fix: the moment you launch a card
+(`detach_run.py --card <id> --log <log> -- …`), arm an in-session `CronCreate` sentinel:
+
+```
+CronCreate(cron="<off-:00 minute> */1 * * *", recurring=true, durable=false,
+  prompt="[<id> sentinel] Check detached job <id>: grep <log> for the latest
+  Iter/complete/nan/FAILED; ps the runner; cat .fleet/status/progress/<id>.json.
+  If COMPLETE -> set the card done + do the leader semantic/science QA (vs the
+  plan/paper); if nan/failure -> report; if running -> one-line progress.
+  CronDelete this job on ANY terminal state.")
+```
+
+`durable: false` is MANDATORY here, not a stylistic choice — `durable:true` crons share
+one `.claude/scheduled_tasks.json` across every project in the runtime (a concurrent-
+write race) and fire in ANY idle REPL, not just the one that launched the job (cross-
+project mis-firing). A per-session cron only fires in its own session and dies on a full
+REPL restart — recoverable, since the on-disk truth (`board_cards.json`,
+`.fleet/status/progress/<id>.json`) survives regardless. See the `durable` caveat above
+(*Leader continuity*) for the harness-level verification ritual — some runtimes silently
+ignore the flag entirely.
+
+**Enforced, not just documented:** `detach_sentinel_reminder.py` (PostToolUse(Bash),
+registered by `init_workspace.py`) fires this exact reminder — with the real card id and
+log path substituted in — the instant a `detach_run.py --card` command runs, so the
+leader cannot forget to arm it. It is a no-op on everything else and is NOT gated on
+`AUTONOMOUS_ON`: the forgetting risk exists attended or not.
+
 ## Autonomous overnight run mode (unattended)
 
 Combine: `caffeinate -dimsu -t <secs>` (sized to outlast the run) · prompt-free

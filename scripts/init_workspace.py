@@ -67,9 +67,10 @@ GITIGNORE_BLOCK = """
 
 # Autonomous-mode Bash-discipline guard (PreToolUse hook). Inert until the
 # .fleet/AUTONOMOUS_ON sentinel exists; fails open.
-HOOK_SCRIPTS = ["autonomous_bash_guard.py", "qa_gate_stop.py"]   # tests live in dev/tests/
+HOOK_SCRIPTS = ["autonomous_bash_guard.py", "qa_gate_stop.py", "detach_sentinel_reminder.py"]   # tests live in dev/tests/
 HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.fleet/hooks/autonomous_bash_guard.py"'
 STOP_HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.fleet/hooks/qa_gate_stop.py"'
+POST_HOOK_CMD = 'python3 "$CLAUDE_PROJECT_DIR/.fleet/hooks/detach_sentinel_reminder.py"'
 
 # Baseline PROJECT permissions for unattended operation. The guard hook only
 # BLOCKS dangerous patterns — it cannot APPROVE anything; approval comes from
@@ -176,6 +177,16 @@ def _wire_autonomous_hook(target: Path) -> None:
         stop.append({"hooks": [{"type": "command", "command": STOP_HOOK_CMD}]})
         changed = True
         print("  · registered Stop QA-gate hook (autonomous-mode leader QA forcing)")
+    # PostToolUse(Bash) — remind the leader to arm a cron sentinel on every detached-job
+    # launch (`detach_run.py --card`); NOT scoped to AUTONOMOUS_ON — the forgetting risk
+    # exists attended or not, and the hook itself is a no-op on everything else.
+    post = settings.setdefault("hooks", {}).setdefault("PostToolUse", [])
+    if not any(".fleet/hooks/detach_sentinel_reminder.py" in h.get("command", "")
+               for entry in post if isinstance(entry, dict)
+               for h in entry.get("hooks", []) if isinstance(h, dict)):
+        post.append({"matcher": "Bash", "hooks": [{"type": "command", "command": POST_HOOK_CMD}]})
+        changed = True
+        print("  · registered PostToolUse(Bash) detach-sentinel reminder hook")
     if changed:
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     else:
