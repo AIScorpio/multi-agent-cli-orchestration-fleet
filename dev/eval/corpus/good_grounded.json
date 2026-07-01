@@ -1,0 +1,2 @@
+{"label":"good","criteria":["every factual claim cites a source present in context_files","no invented citations or numbers"],
+ "deliverable":"Recall improves 4.1 points over the e5 baseline (results/table2.json, row 3). Every figure traces to a provided source; no external claims."}

@@ -1,0 +1,12 @@
+{
+  "agent": "opencode",
+  "default_model": "glm-5.1 (pinned best — flat-rate quota is hard to exhaust; degrading it would waste paid-for intelligence)",
+  "cli": "opencode run --dangerously-skip-permissions",
+  "tier": "workhorse",
+  "token_economy": "Cheap / flat-rate, under-used quota — a default workhorse. Use freely for the bulk of coding, testing, and structured output once the task is well-scaffolded. Subagent fan-out ON: native `opencode agent` support; internal parallelism converts idle quota into wall-clock speedup on decomposable tasks.",
+  "role": "GENERAL-PURPOSE workhorse with a comparative edge in code quality and implementation: tests, edge-case analysis, code review, structured markdown deliverables. best_for = comparative advantage under contention, NOT a partition. Native agent/subagent support.",
+  "best_for": ["unit tests", "code review", "tabulation/structured summaries", "routine implementation"],
+  "global_max_concurrent": 6,
+  "fallback_agents": ["kimi"],
+  "subagent_fanout": true
+}

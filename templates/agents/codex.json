@@ -1,0 +1,17 @@
+{
+  "agent": "codex",
+  "default_model": "gpt-5.5 (reasoning effort auto-laddered)",
+  "cli": "codex exec --skip-git-repo-check -s workspace-write",
+  "tier": "reserve",
+  "token_economy": "QUOTA-SCARCE (all four subscriptions are flat-rate monthly — cost is not the axis, quota scarcity is). Bounded by BOTH a 5h window AND a weekly window; REAL telemetry from ~/.codex/sessions rollouts drives the capacity gate. Assign ONLY when the task genuinely needs top-tier intelligence (hard algorithms, subtle correctness). Prefer the quota-abundant workhorses (opencode/kimi) for routine work.",
+  "role": "Expert software engineer: complex algorithm implementation, subtle correctness, PyTorch/sentence-transformers/FAISS/NetworkX.",
+  "best_for": ["non-trivial algorithm implementation", "hard debugging", "correctness-critical code"],
+  "global_max_concurrent": 2,
+  "fallback_agents": ["claude", "kimi"],
+  "subagent_fanout": false,
+  "effort_ladder": [
+    {"effort": "xhigh",  "below_pct": 60},
+    {"effort": "high",   "below_pct": 85},
+    {"effort": "medium", "below_pct": 101}
+  ]
+}

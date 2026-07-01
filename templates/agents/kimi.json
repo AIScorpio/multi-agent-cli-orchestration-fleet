@@ -1,0 +1,12 @@
+{
+  "agent": "kimi",
+  "default_model": "kimi-k2.6 (pinned best — flat-rate quota is hard to exhaust; degrading it would waste paid-for intelligence)",
+  "cli": "kimi --print --afk -p",
+  "tier": "workhorse",
+  "token_economy": "Flat-rate subscription, under-used quota — a default workhorse. Use freely for long-context research, literature synthesis, and reading-heavy tasks once well-scaffolded. Subagent fan-out ON: internal parallelism converts idle quota into wall-clock speedup on decomposable tasks.",
+  "role": "GENERAL-PURPOSE workhorse (fully capable coder) with a comparative edge in long-context work: literature review, multi-document analysis, prose synthesis (largest context window). best_for = comparative advantage under contention, NOT a partition — route code/tests here freely whenever instances are idle. Supports internal sub-agents (parallel isolated tasks).",
+  "best_for": ["literature review", "long-document synthesis", "research prose", "reading-heavy analysis", "code & tests (general-purpose — don't let the labels above idle it)"],
+  "global_max_concurrent": 6,
+  "fallback_agents": ["opencode"],
+  "subagent_fanout": true
+}

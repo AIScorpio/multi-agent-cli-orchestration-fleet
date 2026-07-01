@@ -1,0 +1,2 @@
+{"label":"good","criteria":["no hard-coded constants","tunables via config"],
+ "deliverable":"def score(x, threshold=CFG.threshold):\n    return x >= threshold  # CFG loaded from config.json"}

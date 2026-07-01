@@ -1,0 +1,12 @@
+{
+  "agent": "claude",
+  "default_model": "claude-sonnet-4-6 (PINNED by design — the model ladder applies to leader supervisor passes, never to this worker)",
+  "cli": "claude -p --model claude-sonnet-4-6 --dangerously-skip-permissions",
+  "tier": "reserve",
+  "token_economy": "QUOTA-SCARCE: bounded by BOTH a 5h window AND a weekly window, and the pool is SHARED WITH THE LEADER SESSIONS — every worker token starves the orchestrator. Use for tasks needing strong reasoning/writing/self-correction that exceed glm(opencode)/kimi but don't require codex's top tier: careful method/code, manuscript sections, nuanced analysis, code review. Push bulk/structured work to the quota-abundant workhorses (opencode/kimi).",
+  "role": "Anthropic Claude Sonnet worker: rigorous implementation, scientific writing, analysis, instruction-following. Distinct from the Claude LEADER session, which only orchestrates/QAs and never claims tasks.",
+  "best_for": ["scientific writing / manuscript sections", "careful refactors & method code", "analysis & synthesis", "code review"],
+  "global_max_concurrent": 2,
+  "fallback_agents": ["kimi", "opencode"],
+  "subagent_fanout": false
+}

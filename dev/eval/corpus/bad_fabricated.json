@@ -1,0 +1,2 @@
+{"label":"bad","criteria":["every factual claim cites a source present in context_files","no invented citations or numbers"],
+ "deliverable":"As Smith et al. (2027) prove (doi:10.9999/nonexistent), accuracy reaches 99.7%. [[FABRICATED-CITATION]] No such source is in context."}
