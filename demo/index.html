@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fleet Kanban — Simulated Demo</title>
+<style>
+  /* ── Faithful port of kanban_hub.py's stylesheet (GitHub dark) ───────────── */
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;
+        --codex:#3fb950;--kimi:#bc8cff;--opencode:#58a6ff;--any:#d29922;
+        --claude:#ff9e64;--lead:#e3b341;
+        --ok:#3fb950;--fail:#f85149;--work:#d29922;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-x:hidden}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;
+         border-bottom:1px solid var(--border);background:var(--panel);position:sticky;top:0;z-index:5}
+  header h1{font-size:15px;margin:0;font-weight:600}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .pulse{animation:p 1.4s infinite}@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+  .agents{display:flex;gap:14px;margin-left:auto;font-size:12px;flex-wrap:wrap}
+  .agent{display:flex;align-items:center;gap:4px}
+  .badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;text-transform:uppercase;letter-spacing:.3px}
+  .b-codex{background:rgba(63,185,80,.18);color:var(--codex)}
+  .b-kimi{background:rgba(188,140,255,.18);color:var(--kimi)}
+  .b-opencode{background:rgba(88,166,255,.18);color:var(--opencode)}
+  .b-claude{background:rgba(255,158,100,.18);color:var(--claude)}
+  .b-claude-lead{background:rgba(227,179,65,.22);color:var(--lead);border:1px solid var(--lead)}
+  .b-any{background:rgba(210,153,34,.18);color:var(--any)}
+  .b-detached{background:rgba(139,148,158,.18);color:var(--dim)}
+  .agent .role{font-size:10px;color:var(--dim)}
+  .agent .xn{font-size:10px;font-weight:700;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0 5px}
+  #updated{font-size:11px;color:var(--dim)}
+  #tabs{display:flex;gap:2px;padding:8px 16px 0;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .tab{padding:7px 14px;border:1px solid var(--border);border-bottom:none;border-radius:7px 7px 0 0;
+       cursor:pointer;font-size:12px;color:var(--dim);background:var(--bg);display:flex;gap:7px;align-items:center;position:relative}
+  .tab.active{color:var(--text);background:var(--panel);border-color:#5b6673;font-weight:600}
+  .tab .mini{font-size:10px;border-radius:8px;padding:0 6px;background:var(--bg);border:1px solid var(--border)}
+  .tab .mini.hot{color:var(--work);border-color:var(--work)}
+  .tab .mini.bad{color:var(--fail);border-color:var(--fail)}
+  .board{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:14px}
+  .col{background:var(--panel);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;min-height:120px}
+  .col h2{font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin:0;padding:9px 12px;
+          border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+  .col h2 .n{background:var(--bg);border-radius:10px;padding:0 8px;font-size:11px;color:var(--dim)}
+  .h-pending{color:var(--dim)} .h-claimed{color:var(--work)}
+  .h-done{color:#58a6ff} .h-approved{color:var(--ok)} .h-failed{color:var(--fail)}
+  #progress,#continuity{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel)}
+  #continuity{padding:6px 16px}
+  #progress .big{font-size:17px;font-weight:700;color:var(--ok)}
+  #progress .lbl{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  #progress .chip{font-size:11px;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:2px 9px}
+  #progress .phasetoggle{cursor:pointer;user-select:none;font-size:11px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:2px 10px}
+  #progress .phasetoggle:hover{border-color:var(--work)}
+  .cards{padding:8px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:calc(100vh - 230px)}
+  .card{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;cursor:pointer;transition:border-color .15s}
+  .card:hover{border-color:#5b6673}
+  .card .t{font-weight:500;margin-bottom:5px}
+  .card .m{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--dim);flex-wrap:wrap}
+  .card.failed{border-left:3px solid var(--fail)}
+  .card.working{border-left:3px solid var(--work)}
+  .card.done{border-left:3px solid var(--ok)}
+  /* demo: a soft entrance + a lane-change flash so movement reads clearly on a projector */
+  @keyframes cardin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .card.anim{animation:cardin .45s ease}
+  @keyframes flash{0%{box-shadow:0 0 0 0 rgba(210,153,34,.0)}30%{box-shadow:0 0 0 2px rgba(210,153,34,.55)}100%{box-shadow:0 0 0 0 rgba(210,153,34,0)}}
+  .card.move{animation:flash 1s ease}
+  .tid{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--dim);margin-top:4px}
+  .empty{color:var(--dim);font-size:12px;padding:14px;text-align:center;font-style:italic}
+  /* Overview tab */
+  #overview{padding:14px;display:none;flex-direction:column;gap:12px}
+  .proj{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+  .proj .head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;cursor:pointer}
+  .proj .head .nm{font-weight:600;font-size:14px}
+  .proj .head .rt{font-size:11px;color:var(--dim);font-family:ui-monospace,Menlo,monospace}
+  .proj .nums{display:flex;gap:8px;margin-left:auto}
+  .proj .hot{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+  .proj .hotcard{font-size:11px;border:1px solid var(--border);border-radius:6px;padding:3px 8px;color:var(--dim)}
+  .proj .hotcard.f{border-color:var(--fail);color:var(--fail)}
+  .capline{font-size:12px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  /* ── Demo chrome (cursor, caption, controls, ribbon) — NOT part of the hub ── */
+  #cursor{position:fixed;width:22px;height:22px;z-index:40;pointer-events:none;left:60px;top:60px;
+          transition:left .85s cubic-bezier(.5,.05,.3,1),top .85s cubic-bezier(.5,.05,.3,1);
+          filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+  #cursor.press{transform:scale(.82)}
+  #cursor svg{display:block}
+  .ripple{position:fixed;z-index:39;border:2px solid #fff;border-radius:50%;pointer-events:none;
+          width:14px;height:14px;opacity:.9;transform:translate(-50%,-50%);animation:rip .55s ease-out forwards}
+  @keyframes rip{from{width:8px;height:8px;opacity:.85}to{width:46px;height:46px;opacity:0}}
+  #caption{position:fixed;left:50%;bottom:42px;transform:translateX(-50%);z-index:38;max-width:min(900px,92vw);
+           background:rgba(22,27,34,.94);border:1px solid var(--border);border-left:3px solid var(--kimi);
+           border-radius:10px;padding:10px 16px;backdrop-filter:blur(4px);opacity:0;transition:opacity .35s;
+           box-shadow:0 8px 30px rgba(0,0,0,.45)}
+  #caption.show{opacity:1}
+  #caption .ct{font-size:14px;font-weight:600;color:var(--text)}
+  #caption .cs{font-size:12px;color:var(--dim);margin-top:2px}
+  #ribbon{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:42;font-size:10.5px;font-weight:700;
+          letter-spacing:.6px;text-transform:uppercase;color:#0d1117;background:var(--lead);
+          border-radius:0 0 8px 8px;padding:3px 14px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  #bar{position:fixed;left:0;bottom:0;width:100%;height:4px;background:rgba(255,255,255,.06);z-index:38}
+  #barfill{height:100%;width:0;background:linear-gradient(90deg,var(--kimi),var(--opencode));transition:width .2s linear}
+  #ctl{position:fixed;right:14px;bottom:16px;z-index:43;display:flex;gap:8px;align-items:center}
+  #ctl button{cursor:pointer;background:var(--panel);border:1px solid var(--border);color:var(--text);
+              border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600}
+  #ctl button:hover{border-color:var(--kimi)}
+  #ctl .clk{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+</style></head>
+<body>
+<div id="ribbon">● Simulated demo — not live data</div>
+<header>
+  <h1>Fleet Kanban</h1>
+  <span id="updated">connecting…</span>
+  <div class="agents" id="agents"></div>
+</header>
+<div id="tabs"></div>
+<div id="progress"></div>
+<div id="continuity"></div>
+<div id="overview"></div>
+<div class="board" id="board">
+  <div class="col"><h2 class="h-pending">Pending <span class="n" id="n-pending">0</span></h2><div class="cards" id="c-pending"></div></div>
+  <div class="col"><h2 class="h-claimed">In Progress <span class="n" id="n-claimed">0</span></h2><div class="cards" id="c-claimed"></div></div>
+  <div class="col"><h2 class="h-done">Done · Pending QA <span class="n" id="n-completed">0</span></h2><div class="cards" id="c-completed"></div></div>
+  <div class="col"><h2 class="h-approved">Approved ✓ <span class="n" id="n-approved">0</span></h2><div class="cards" id="c-approved"></div></div>
+  <div class="col"><h2 class="h-failed">Failed <span class="n" id="n-failed">0</span></h2><div class="cards" id="c-failed"></div></div>
+</div>
+
+<div id="cursor"><svg width="22" height="22" viewBox="0 0 22 22"><path d="M2 2 L2 17 L6.5 12.5 L9.5 19 L12 18 L9 11.5 L15.5 11.5 Z" fill="#fff" stroke="#0d1117" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+<div id="caption"><div class="ct"></div><div class="cs"></div></div>
+<div id="bar"><div id="barfill"></div></div>
+<div id="ctl"><span class="clk" id="clk">0:00 / 2:00</span><button id="pause">⏸ Pause</button><button id="replay">⟲ Replay</button></div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  SNAPSHOT: real read-only capture from the live hub (build-time injected). ║
+// ║  projects[id] is exactly what /api/queue?project=id returned;             ║
+// ║  overview is exactly /api/projects. Nothing here talks to the fleet.      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+const SNAPSHOT = {"updated": "2026-06-25T19:22:31Z", "updated_iso": "2026-06-25T19:22:31Z", "clock": "19:22:31", "clockISO": "2026-06-25T19:22:31Z", "demo_project": "05.Atlas-Research-9f21b3d0", "order": ["05.Atlas-Research-9f21b3d0", "01.Northwind-Platform-4c88a1e2", "04.Horizon-Analytics-6a13f9c7"], "overview": {"projects": [{"id": "05.Atlas-Research-9f21b3d0", "name": "05.Atlas-Research", "root": "/Users/demo/projects/05.Atlas-Research", "missing": false, "counts": {"pending": 2, "claimed": 1, "completed": 3, "failed": 0, "approved": 28}, "claimed": [], "failed": []}, {"id": "01.Northwind-Platform-4c88a1e2", "name": "01.Northwind-Platform", "root": "/Users/demo/projects/01.Northwind-Platform", "missing": false, "counts": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0, "approved": 56}, "claimed": [], "failed": []}, {"id": "04.Horizon-Analytics-6a13f9c7", "name": "04.Horizon-Analytics", "root": "/Users/demo/projects/04.Horizon-Analytics", "missing": false, "counts": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0, "approved": 215}, "claimed": [], "failed": []}], "capacity": [{"agent": "claude-lead", "drained_until": 0, "source": "reactive", "probed_at": 1781702122, "rung": 0}, {"agent": "claude", "drained_until": 0, "rung": 0, "rung_set_at": 1781120277, "source": "reactive", "probed_at": 1781120277}, {"agent": "codex", "used_5h_pct": 38.0, "resets_at_5h": 1782421000, "used_week_pct": 19.0, "resets_at_week": 1782544000, "source": "rollout:rollout-2026-06-25T10-04-02-demo0000-0000-0000-0000-000000000000.jsonl", "probed_at": 1782415340, "drained_until": 0, "rung": 0, "rung_set_at": 1781163411}, {"agent": "kimi", "drained_until": 0, "rung": 0, "rung_set_at": 1781181927, "source": "reactive", "probed_at": 1781181927}, {"agent": "opencode", "drained_until": 0, "rung": 0, "rung_set_at": 1781303200, "source": "reactive", "probed_at": 1781304393}], "alerts": []}, "projects": {"05.Atlas-Research-9f21b3d0": {"updated": "2026-05-14T19:17:31Z", "agents": {"claude-lead": {"status": "leading", "task_id": null, "title": null, "role": "LEADER \u00b7 orchestration/QA"}, "codex": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 gpt-5.5"}, "kimi": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 K2.6"}, "opencode": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 glm-5.2"}, "claude": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 Sonnet 4.6"}}, "continuity": {"wait_sentinels": 0, "qa_notify": true, "durable_cron_present": false, "durable_cron": 0, "launchd": {"installed": false, "loaded": false, "interval": null}, "caretaker": true, "last_pass_age_s": 576}, "pending": [{"task_id": "lm-retune-phaseB", "title": "Large-model re-tune Phase B \u2014 full alignment run (held pending Phase A)", "assigned_to": "detached", "priority": 9, "type": "detached", "phase": "P4", "detached": true}, {"task_id": "lm-eval-holdout", "title": "Held-out evaluation sweep \u2014 stratified sample", "assigned_to": "detached", "priority": 6, "type": "detached", "phase": "P4", "detached": true}], "claimed": [{"task_id": "lm-retune-phaseA", "title": "Large-model re-tune Phase A \u2014 quick calibration checkpoint (RUNNING)", "agent": "detached", "type": "detached", "phase": "P4", "detached": true}], "completed": [{"task_id": "sft-data-prep", "title": "Prepare supervised fine-tune data (prompt/completion, stratified held-out)", "agent": "detached", "phase": "P4", "completed_at": "", "detached": true}, {"task_id": "baseline-sweep", "title": "Baseline sweep across reference configs", "agent": "detached", "phase": "P4", "completed_at": "", "detached": true}, {"task_id": "repro-check", "title": "Reproduce prior baseline numbers (sanity check)", "agent": "detached", "phase": "P4", "completed_at": "", "detached": true}], "failed": [], "approved": [{"task_id": "task-p05a-01", "title": "Implement baseline estimator (core statistic + variance)", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-01T09:00:00+00:00"}, {"task_id": "task-p05a-02", "title": "Add permutation-based significance sampler", "agent": "codex", "phase": "3", "completed_at": "2026-06-02T10:07:00+00:00"}, {"task_id": "task-p05a-03", "title": "Wire evaluation metrics module against baseline suite", "agent": "kimi", "phase": "3", "completed_at": "2026-06-03T11:14:00+00:00"}, {"task_id": "task-p05a-04", "title": "Build dataset loader + stratified split utility", "agent": "opencode", "phase": "3", "completed_at": "2026-06-04T12:21:00+00:00"}, {"task_id": "task-p05a-05", "title": "Sibling tests for estimator module (edge cases)", "agent": "claude", "phase": "3", "completed_at": "2026-06-05T13:28:00+00:00"}, {"task_id": "task-p05a-06", "title": "Backend integration for runner scripts", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-06T14:35:00+00:00"}, {"task_id": "task-p05a-07", "title": "Code review pass: estimator numerical stability", "agent": "codex", "phase": "3", "completed_at": "2026-06-07T15:42:00+00:00"}, {"task_id": "task-p05a-08", "title": "Add config-driven experiment runner (no hardcoded paths)", "agent": "kimi", "phase": "3", "completed_at": "2026-06-08T16:49:00+00:00"}, {"task_id": "task-p05a-09", "title": "Implement baseline estimator (core statistic + variance) (seed 2)", "agent": "opencode", "phase": "3", "completed_at": "2026-06-09T09:56:00+00:00"}, {"task_id": "task-p05a-10", "title": "Add permutation-based significance sampler (seed 2)", "agent": "claude", "phase": "3", "completed_at": "2026-06-10T10:03:00+00:00"}, {"task_id": "task-p05a-11", "title": "Wire evaluation metrics module against baseline suite (seed 2)", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-11T11:10:00+00:00"}, {"task_id": "task-p05a-12", "title": "Build dataset loader + stratified split utility (seed 2)", "agent": "codex", "phase": "3", "completed_at": "2026-06-12T12:17:00+00:00"}, {"task_id": "task-p05a-13", "title": "Sibling tests for estimator module (edge cases) (seed 2)", "agent": "kimi", "phase": "3", "completed_at": "2026-06-13T13:24:00+00:00"}, {"task_id": "task-p05a-14", "title": "Backend integration for runner scripts (seed 2)", "agent": "opencode", "phase": "3", "completed_at": "2026-06-14T14:31:00+00:00"}, {"task_id": "task-p05a-15", "title": "Code review pass: estimator numerical stability (seed 2)", "agent": "claude", "phase": "3", "completed_at": "2026-06-15T15:38:00+00:00"}, {"task_id": "task-p05a-16", "title": "Add config-driven experiment runner (no hardcoded paths) (seed 2)", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-16T16:45:00+00:00"}, {"task_id": "task-p05a-17", "title": "Implement baseline estimator (core statistic + variance) (seed 3)", "agent": "codex", "phase": "3", "completed_at": "2026-06-17T09:52:00+00:00"}, {"task_id": "task-p05a-18", "title": "Add permutation-based significance sampler (seed 3)", "agent": "kimi", "phase": "3", "completed_at": "2026-06-18T10:59:00+00:00"}, {"task_id": "task-p05a-19", "title": "Wire evaluation metrics module against baseline suite (seed 3)", "agent": "opencode", "phase": "3", "completed_at": "2026-06-19T11:06:00+00:00"}, {"task_id": "task-p05a-20", "title": "Build dataset loader + stratified split utility (seed 3)", "agent": "claude", "phase": "3", "completed_at": "2026-06-20T12:13:00+00:00"}, {"task_id": "task-p05a-21", "title": "Sibling tests for estimator module (edge cases) (seed 3)", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-21T13:20:00+00:00"}, {"task_id": "task-p05a-22", "title": "Backend integration for runner scripts (seed 3)", "agent": "codex", "phase": "3", "completed_at": "2026-06-22T14:27:00+00:00"}, {"task_id": "task-p05a-23", "title": "Code review pass: estimator numerical stability (seed 3)", "agent": "kimi", "phase": "3", "completed_at": "2026-06-23T15:34:00+00:00"}, {"task_id": "task-p05a-24", "title": "Add config-driven experiment runner (no hardcoded paths) (seed 3)", "agent": "opencode", "phase": "3", "completed_at": "2026-06-24T16:41:00+00:00"}, {"task_id": "task-p05a-25", "title": "Implement baseline estimator (core statistic + variance) (seed 4)", "agent": "claude", "phase": "3", "completed_at": "2026-06-25T09:48:00+00:00"}, {"task_id": "task-p05a-26", "title": "Add permutation-based significance sampler (seed 4)", "agent": "claude-lead", "phase": "3", "completed_at": "2026-06-26T10:55:00+00:00"}, {"task_id": "task-p05b-01", "title": "Cross-check replication formula vs reference implementation", "agent": "claude-lead", "phase": "4", "completed_at": "2026-06-01T09:00:00+00:00"}, {"task_id": "task-p05b-02", "title": "Synthesize results across seeds (paired confidence intervals)", "agent": "codex", "phase": "4", "completed_at": "2026-06-02T10:07:00+00:00"}], "drafts": [], "phase_counts": {"3": 26, "4": 2}, "phases_meta": {"title": "Atlas Research replication \u2014 validation (not publication)", "phases": [{"id": "P0", "name": "Requirements (bootstrap)", "status": "done", "gate": "readiness 85/100; compute=M-class laptop GPU, directional bar, replication-first, grader=generic-worker"}, {"id": "P1", "name": "Primary-source sourcing (papers/repos)", "status": "done", "gate": "verified primary paper + reference implementation; licensing checked"}, {"id": "P2", "name": "Pre-registration (frozen)", "status": "done", "gate": "design frozen; primary + stretch metrics declared ahead of runs"}, {"id": "P3", "name": "Platform implementation", "status": "done", "gate": "estimator + permutation sampler + metrics + baselines + dataset loaders QA-passed"}, {"id": "P4", "name": "Replication experiments", "status": "active", "gate": "multi-seed runs in progress; paired CIs; freeze results artifact on completion"}, {"id": "P5", "name": "Validation report + transfer assessment", "status": "pending", "gate": "honest directional-replication verdict; stakeholder transfer memo + runnable demo"}, {"id": "P6", "name": "Peer review", "status": "pending", "gate": "fact-check vs primary sources; technical re-derivation"}, {"id": "P7", "name": "Synthesis (cross-gate integration)", "status": "pending", "gate": "integrate all gate findings into one report"}, {"id": "P8", "name": "Acceptance / validation verdict", "status": "pending", "gate": "validation_confidence >= 0.70; honest reframe if refuted"}]}, "phase_state": "defined", "counts": {"pending": 2, "claimed": 1, "completed": 3, "failed": 0, "approved": 28, "drafts": 0}}, "01.Northwind-Platform-4c88a1e2": {"updated": "2026-04-02T19:17:31Z", "agents": {"claude-lead": {"status": "leading", "task_id": null, "title": null, "role": "LEADER \u00b7 orchestration/QA"}, "codex": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 gpt-5.5"}, "kimi": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 K2.6"}, "opencode": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 glm-5.2"}, "claude": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 Sonnet 4.6"}}, "continuity": {"wait_sentinels": 0, "qa_notify": false, "durable_cron_present": false, "durable_cron": 0, "launchd": {"installed": false, "loaded": false, "interval": null}, "caretaker": true, "last_pass_age_s": 761197}, "pending": [], "claimed": [], "completed": [], "failed": [], "approved": [{"task_id": "task-p01-p0-01", "title": "Wire up quality-gate script", "agent": "claude-lead", "phase": "p0", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-p0-02", "title": "Add pre-commit lint/type checks", "agent": "codex", "phase": "p0", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-p0-03", "title": "Document quality-gate exceptions process", "agent": "kimi", "phase": "p0", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-p1-01", "title": "Implement auth matrix (roles x resources)", "agent": "claude-lead", "phase": "p1", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-p1-02", "title": "Add rate limiting to public endpoints", "agent": "codex", "phase": "p1", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-p1-03", "title": "Rotate + vault-manage service credentials", "agent": "kimi", "phase": "p1", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-p1-04", "title": "Non-destructive migration dry-run harness", "agent": "opencode", "phase": "p1", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-p1-05", "title": "Audit log for privileged actions", "agent": "claude", "phase": "p1", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-p1-06", "title": "Pen-test remediation pass", "agent": "claude-lead", "phase": "p1", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p01-p2-01", "title": "Design job queue schema", "agent": "claude-lead", "phase": "p2", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-p2-02", "title": "Implement job queue worker pool", "agent": "codex", "phase": "p2", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-p2-03", "title": "Consolidate LLM calls behind one gateway", "agent": "kimi", "phase": "p2", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-p2-04", "title": "Move config + API keys into DB-backed store", "agent": "opencode", "phase": "p2", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-p2-05", "title": "Add queue dead-letter handling", "agent": "claude", "phase": "p2", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-p2-06", "title": "Backfill job for legacy records", "agent": "claude-lead", "phase": "p2", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p01-p2-07", "title": "Add queue depth metrics", "agent": "codex", "phase": "p2", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p01-p2-08", "title": "Circuit-breaker for downstream API", "agent": "kimi", "phase": "p2", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p01-p2-09", "title": "Retry/backoff policy for job runner", "agent": "opencode", "phase": "p2", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p01-p2-10", "title": "Queue admin CLI", "agent": "claude", "phase": "p2", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p01-p3-01", "title": "Add toast notification system", "agent": "claude-lead", "phase": "p3", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-p3-02", "title": "Adopt SWR for data fetching", "agent": "codex", "phase": "p3", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-p3-03", "title": "Streaming-response hook for chat UI", "agent": "kimi", "phase": "p3", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-p3-04", "title": "Information-architecture pass on nav", "agent": "opencode", "phase": "p3", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-p3-05", "title": "Loading-skeleton components", "agent": "claude", "phase": "p3", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-p3-06", "title": "ARIA labeling audit", "agent": "claude-lead", "phase": "p3", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p01-p3-07", "title": "Empty-state illustrations", "agent": "codex", "phase": "p3", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p01-p3-08", "title": "Mobile responsive pass", "agent": "kimi", "phase": "p3", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p01-p4-01", "title": "Auth regression test suite", "agent": "claude-lead", "phase": "p4", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-p4-02", "title": "Dual-profile end-to-end smoke test", "agent": "codex", "phase": "p4", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-p4-03", "title": "Deploy runbook doc", "agent": "kimi", "phase": "p4", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-p4-04", "title": "README refresh", "agent": "opencode", "phase": "p4", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-p4-05", "title": "Load test before cutover", "agent": "claude", "phase": "p4", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-p4-06", "title": "Rollback drill", "agent": "claude-lead", "phase": "p4", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p01-sync-01", "title": "Sync engine drift audit", "agent": "claude-lead", "phase": "sync", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-sync-02", "title": "Security hardening for sync credentials", "agent": "codex", "phase": "sync", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-sync-03", "title": "Incremental sync (delta-only)", "agent": "kimi", "phase": "sync", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-sync-04", "title": "Sync conflict-resolution policy", "agent": "opencode", "phase": "sync", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-sync-05", "title": "Leader-only live-run guard", "agent": "claude", "phase": "sync", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-rag-r0-01", "title": "RAG technical design doc", "agent": "claude-lead", "phase": "rag-r0", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-rag-r0-02", "title": "Vector-store options memo", "agent": "codex", "phase": "rag-r0", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-rag-r1-01", "title": "Embedding capability module", "agent": "claude-lead", "phase": "rag-r1", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-rag-r1-02", "title": "Vector-storage schema (additive)", "agent": "codex", "phase": "rag-r1", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-rag-r2-01", "title": "Embed-docs background job", "agent": "claude-lead", "phase": "rag-r2", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-rag-r2-02", "title": "Trigger API for re-embedding", "agent": "codex", "phase": "rag-r2", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-rag-r2-03", "title": "Embedding job retry policy", "agent": "kimi", "phase": "rag-r2", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-rag-r2-04", "title": "Embedding cost/usage tracking", "agent": "opencode", "phase": "rag-r2", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-rag-r3-01", "title": "Retrieval endpoint", "agent": "claude-lead", "phase": "rag-r3", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-rag-r3-02", "title": "Chat injection of retrieved context", "agent": "codex", "phase": "rag-r3", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-rag-r3-03", "title": "Semantic-search UI", "agent": "kimi", "phase": "rag-r3", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p01-rag-r3-04", "title": "Relevance-ranking tuning", "agent": "opencode", "phase": "rag-r3", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p01-rag-r3-05", "title": "Retrieval latency budget", "agent": "claude", "phase": "rag-r3", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p01-rag-r3-06", "title": "Citation surfacing in UI", "agent": "claude-lead", "phase": "rag-r3", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p01-rag-r3-07", "title": "Retrieval eval harness", "agent": "codex", "phase": "rag-r3", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p01-rag-r4-01", "title": "Dual-profile e2e for RAG flow", "agent": "claude-lead", "phase": "rag-r4", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p01-rag-r4-02", "title": "README RAG section", "agent": "codex", "phase": "rag-r4", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p01-rag-r4-03", "title": "RAG rollout checklist", "agent": "kimi", "phase": "rag-r4", "completed_at": "2026-05-03T11:22:00+00:00"}], "drafts": [], "phase_counts": {"p0": 3, "p1": 6, "p2": 10, "p3": 8, "p4": 6, "sync": 5, "rag-r0": 2, "rag-r1": 2, "rag-r2": 4, "rag-r3": 7, "rag-r4": 3}, "phases_meta": {"title": "Northwind Platform Revamp", "phases": [{"id": "p0", "name": "Quality Gate", "status": "done", "gate": "p0 checks qa-passed; quality-gate script operational"}, {"id": "p1", "name": "Security & Data Safety", "status": "done", "gate": "security checks qa-passed; builds non-destructive; auth matrix implemented"}, {"id": "p2", "name": "Architecture", "status": "done", "gate": "job queue designed (human-reviewed) then implemented; config+keys in DB; LLM calls consolidated", "depends_on": ["p1"]}, {"id": "p3", "name": "Frontend UX", "status": "done", "gate": "toast/SWR/streaming-hook/IA/skeleton/aria done", "depends_on": ["p0"]}, {"id": "p4", "name": "Regression & Docs", "status": "done", "gate": "auth tests, dual-profile e2e smoke, README/deploy docs", "depends_on": ["p2", "p3"]}, {"id": "sync", "name": "Sync Engine Revival", "status": "done", "gate": "drift audit + security hardening + incremental sync; live-run leader-only", "depends_on": ["p2"]}, {"id": "rag-r0", "name": "RAG Design", "status": "done", "gate": "RAG technical design doc qa-passed (design only, no implementation)"}, {"id": "rag-design-approved", "name": "RAG Design \u2014 human gate", "status": "done", "gate": "project owner + leader approve the design (vector-store choice + embedding provider) before any data-touching task is created", "depends_on": ["rag-r0"]}, {"id": "rag-r1", "name": "RAG Foundation", "status": "done", "gate": "embedding capability + vector schema (additive) qa-passed", "depends_on": ["rag-design-approved"]}, {"id": "rag-r2", "name": "RAG Embedding Pipeline", "status": "done", "gate": "embed-docs job + trigger API qa-passed", "depends_on": ["rag-r1"]}, {"id": "rag-r3", "name": "RAG Retrieval + Integration", "status": "done", "gate": "retrieval + chat injection + semantic-search UI qa-passed", "depends_on": ["rag-r2"]}, {"id": "rag-r4", "name": "RAG Regression & Docs", "status": "done", "gate": "dual-profile e2e + README RAG section qa-passed", "depends_on": ["rag-r3"]}]}, "phase_state": "defined", "counts": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0, "approved": 56, "drafts": 0}}, "04.Horizon-Analytics-6a13f9c7": {"updated": "2026-06-10T19:17:31Z", "agents": {"claude-lead": {"status": "leading", "task_id": null, "title": null, "role": "LEADER \u00b7 orchestration/QA"}, "codex": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 gpt-5.5"}, "kimi": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 K2.6"}, "opencode": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 glm-5.2"}, "claude": {"status": "idle", "task_id": null, "title": null, "role": "worker \u00b7 Sonnet 4.6"}}, "continuity": {"wait_sentinels": 0, "qa_notify": true, "durable_cron_present": true, "durable_cron": 0, "launchd": {"installed": false, "loaded": false, "interval": null}, "caretaker": true, "last_pass_age_s": 705074}, "pending": [], "claimed": [], "completed": [], "failed": [], "approved": [{"task_id": "task-p04-F0-01", "title": "Set up benchmark environment", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-F0-02", "title": "Unify data prep across arms", "agent": "codex", "phase": "F0", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-F0-03", "title": "Wire k-fold calibration", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-F0-04", "title": "Baseline arm integration", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-F0-05", "title": "Graph-based arm integration", "agent": "claude", "phase": "F0", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-F0-06", "title": "Cross-encoder arm integration", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-F0-07", "title": "Zero-shot arm integration", "agent": "codex", "phase": "F0", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-F0-08", "title": "Augmentation arm integration", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-F0-09", "title": "Set up benchmark environment (follow-up 2)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-F0-10", "title": "Unify data prep across arms (follow-up 2)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-F0-11", "title": "Wire k-fold calibration (follow-up 2)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-F0-12", "title": "Baseline arm integration (follow-up 2)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-F0-13", "title": "Graph-based arm integration (follow-up 2)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-13T13:12:00+00:00"}, {"task_id": "task-p04-F0-14", "title": "Cross-encoder arm integration (follow-up 2)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-14T14:23:00+00:00"}, {"task_id": "task-p04-F0-15", "title": "Zero-shot arm integration (follow-up 2)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-15T15:34:00+00:00"}, {"task_id": "task-p04-F0-16", "title": "Augmentation arm integration (follow-up 2)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-16T16:45:00+00:00"}, {"task_id": "task-p04-F0-17", "title": "Set up benchmark environment (follow-up 3)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-17T09:56:00+00:00"}, {"task_id": "task-p04-F0-18", "title": "Unify data prep across arms (follow-up 3)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-18T10:07:00+00:00"}, {"task_id": "task-p04-F0-19", "title": "Wire k-fold calibration (follow-up 3)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-19T11:18:00+00:00"}, {"task_id": "task-p04-F0-20", "title": "Baseline arm integration (follow-up 3)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-20T12:29:00+00:00"}, {"task_id": "task-p04-F0-21", "title": "Graph-based arm integration (follow-up 3)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-21T13:40:00+00:00"}, {"task_id": "task-p04-F0-22", "title": "Cross-encoder arm integration (follow-up 3)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-22T14:51:00+00:00"}, {"task_id": "task-p04-F0-23", "title": "Zero-shot arm integration (follow-up 3)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-23T15:02:00+00:00"}, {"task_id": "task-p04-F0-24", "title": "Augmentation arm integration (follow-up 3)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-24T16:13:00+00:00"}, {"task_id": "task-p04-F0-25", "title": "Set up benchmark environment (follow-up 4)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-25T09:24:00+00:00"}, {"task_id": "task-p04-F0-26", "title": "Unify data prep across arms (follow-up 4)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-26T10:35:00+00:00"}, {"task_id": "task-p04-F0-27", "title": "Wire k-fold calibration (follow-up 4)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-27T11:46:00+00:00"}, {"task_id": "task-p04-F0-28", "title": "Baseline arm integration (follow-up 4)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-01T12:57:00+00:00"}, {"task_id": "task-p04-F0-29", "title": "Graph-based arm integration (follow-up 4)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-02T13:08:00+00:00"}, {"task_id": "task-p04-F0-30", "title": "Cross-encoder arm integration (follow-up 4)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-03T14:19:00+00:00"}, {"task_id": "task-p04-F0-31", "title": "Zero-shot arm integration (follow-up 4)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-04T15:30:00+00:00"}, {"task_id": "task-p04-F0-32", "title": "Augmentation arm integration (follow-up 4)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-05T16:41:00+00:00"}, {"task_id": "task-p04-F0-33", "title": "Set up benchmark environment (follow-up 5)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-06T09:52:00+00:00"}, {"task_id": "task-p04-F0-34", "title": "Unify data prep across arms (follow-up 5)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-07T10:03:00+00:00"}, {"task_id": "task-p04-F0-35", "title": "Wire k-fold calibration (follow-up 5)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-08T11:14:00+00:00"}, {"task_id": "task-p04-F0-36", "title": "Baseline arm integration (follow-up 5)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-09T12:25:00+00:00"}, {"task_id": "task-p04-F0-37", "title": "Graph-based arm integration (follow-up 5)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-10T13:36:00+00:00"}, {"task_id": "task-p04-F0-38", "title": "Cross-encoder arm integration (follow-up 5)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-11T14:47:00+00:00"}, {"task_id": "task-p04-F0-39", "title": "Zero-shot arm integration (follow-up 5)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-12T15:58:00+00:00"}, {"task_id": "task-p04-F0-40", "title": "Augmentation arm integration (follow-up 5)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-13T16:09:00+00:00"}, {"task_id": "task-p04-F0-41", "title": "Set up benchmark environment (follow-up 6)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-14T09:20:00+00:00"}, {"task_id": "task-p04-F0-42", "title": "Unify data prep across arms (follow-up 6)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-15T10:31:00+00:00"}, {"task_id": "task-p04-F0-43", "title": "Wire k-fold calibration (follow-up 6)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-16T11:42:00+00:00"}, {"task_id": "task-p04-F0-44", "title": "Baseline arm integration (follow-up 6)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-17T12:53:00+00:00"}, {"task_id": "task-p04-F0-45", "title": "Graph-based arm integration (follow-up 6)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-18T13:04:00+00:00"}, {"task_id": "task-p04-F0-46", "title": "Cross-encoder arm integration (follow-up 6)", "agent": "claude-lead", "phase": "F0", "completed_at": "2026-05-19T14:15:00+00:00"}, {"task_id": "task-p04-F0-47", "title": "Zero-shot arm integration (follow-up 6)", "agent": "codex", "phase": "F0", "completed_at": "2026-05-20T15:26:00+00:00"}, {"task_id": "task-p04-F0-48", "title": "Augmentation arm integration (follow-up 6)", "agent": "kimi", "phase": "F0", "completed_at": "2026-05-21T16:37:00+00:00"}, {"task_id": "task-p04-F0-49", "title": "Set up benchmark environment (follow-up 7)", "agent": "opencode", "phase": "F0", "completed_at": "2026-05-22T09:48:00+00:00"}, {"task_id": "task-p04-F0-50", "title": "Unify data prep across arms (follow-up 7)", "agent": "claude", "phase": "F0", "completed_at": "2026-05-23T10:59:00+00:00"}, {"task_id": "task-p04-P1a-01", "title": "Label-source matrix run (5-seed)", "agent": "claude-lead", "phase": "P1a", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P1a-02", "title": "Robustness check vs weak baselines", "agent": "codex", "phase": "P1a", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P1a-03", "title": "Label-source matrix run (5-seed) (follow-up 2)", "agent": "kimi", "phase": "P1a", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P1a-04", "title": "Robustness check vs weak baselines (follow-up 2)", "agent": "opencode", "phase": "P1a", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P1a-05", "title": "Label-source matrix run (5-seed) (follow-up 3)", "agent": "claude", "phase": "P1a", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P1a-06", "title": "Robustness check vs weak baselines (follow-up 3)", "agent": "claude-lead", "phase": "P1a", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P1a-07", "title": "Label-source matrix run (5-seed) (follow-up 4)", "agent": "codex", "phase": "P1a", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P1a-08", "title": "Robustness check vs weak baselines (follow-up 4)", "agent": "kimi", "phase": "P1a", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P1a-09", "title": "Label-source matrix run (5-seed) (follow-up 5)", "agent": "opencode", "phase": "P1a", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P1a-10", "title": "Robustness check vs weak baselines (follow-up 5)", "agent": "claude", "phase": "P1a", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P1b-01", "title": "Human-anchor ceiling run", "agent": "claude-lead", "phase": "P1b", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P1b-02", "title": "Ceiling panel rendering", "agent": "codex", "phase": "P1b", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P1b-03", "title": "Human-anchor ceiling run (follow-up 2)", "agent": "kimi", "phase": "P1b", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P1b-04", "title": "Ceiling panel rendering (follow-up 2)", "agent": "opencode", "phase": "P1b", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P1b-05", "title": "Human-anchor ceiling run (follow-up 3)", "agent": "claude", "phase": "P1b", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P1b-06", "title": "Ceiling panel rendering (follow-up 3)", "agent": "claude-lead", "phase": "P1b", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P1b-07", "title": "Human-anchor ceiling run (follow-up 4)", "agent": "codex", "phase": "P1b", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P1b-08", "title": "Ceiling panel rendering (follow-up 4)", "agent": "kimi", "phase": "P1b", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P1cA-01", "title": "Proxy-floor run (in-family)", "agent": "claude-lead", "phase": "P1cA", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P1cA-02", "title": "Proxy-floor panel QA", "agent": "codex", "phase": "P1cA", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P1cA-03", "title": "Proxy-floor run (in-family) (follow-up 2)", "agent": "kimi", "phase": "P1cA", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P1cA-04", "title": "Proxy-floor panel QA (follow-up 2)", "agent": "opencode", "phase": "P1cA", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P1cA-05", "title": "Proxy-floor run (in-family) (follow-up 3)", "agent": "claude", "phase": "P1cA", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P1cA-06", "title": "Proxy-floor panel QA (follow-up 3)", "agent": "claude-lead", "phase": "P1cA", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P1cA-07", "title": "Proxy-floor run (in-family) (follow-up 4)", "agent": "codex", "phase": "P1cA", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P1cA-08", "title": "Proxy-floor panel QA (follow-up 4)", "agent": "kimi", "phase": "P1cA", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P1cA-09", "title": "Proxy-floor run (in-family) (follow-up 5)", "agent": "opencode", "phase": "P1cA", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P1cA-10", "title": "Proxy-floor panel QA (follow-up 5)", "agent": "claude", "phase": "P1cA", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P1cA-11", "title": "Proxy-floor run (in-family) (follow-up 6)", "agent": "claude-lead", "phase": "P1cA", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-P1cA-12", "title": "Proxy-floor panel QA (follow-up 6)", "agent": "codex", "phase": "P1cA", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-P1cB-01", "title": "Structured-unseen build", "agent": "claude-lead", "phase": "P1cB", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P1cB-02", "title": "Structured-unseen smoke gate", "agent": "codex", "phase": "P1cB", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P1cB-03", "title": "Structured-unseen build (follow-up 2)", "agent": "kimi", "phase": "P1cB", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P1cB-04", "title": "Structured-unseen smoke gate (follow-up 2)", "agent": "opencode", "phase": "P1cB", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P1cB-05", "title": "Structured-unseen build (follow-up 3)", "agent": "claude", "phase": "P1cB", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P1cB-06", "title": "Structured-unseen smoke gate (follow-up 3)", "agent": "claude-lead", "phase": "P1cB", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P1cB-07", "title": "Structured-unseen build (follow-up 4)", "agent": "codex", "phase": "P1cB", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P1cB-08", "title": "Structured-unseen smoke gate (follow-up 4)", "agent": "kimi", "phase": "P1cB", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P1cB-09", "title": "Structured-unseen build (follow-up 5)", "agent": "opencode", "phase": "P1cB", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P1cB-10", "title": "Structured-unseen smoke gate (follow-up 5)", "agent": "claude", "phase": "P1cB", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P2-01", "title": "Definitive sweep cell", "agent": "claude-lead", "phase": "P2", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P2-02", "title": "Definitive sweep k-fold calibration pass", "agent": "codex", "phase": "P2", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P2-03", "title": "Definitive sweep cell (follow-up 2)", "agent": "kimi", "phase": "P2", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P2-04", "title": "Definitive sweep k-fold calibration pass (follow-up 2)", "agent": "opencode", "phase": "P2", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P2-05", "title": "Definitive sweep cell (follow-up 3)", "agent": "claude", "phase": "P2", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P2-06", "title": "Definitive sweep k-fold calibration pass (follow-up 3)", "agent": "claude-lead", "phase": "P2", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P2-07", "title": "Definitive sweep cell (follow-up 4)", "agent": "codex", "phase": "P2", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P2-08", "title": "Definitive sweep k-fold calibration pass (follow-up 4)", "agent": "kimi", "phase": "P2", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P2-09", "title": "Definitive sweep cell (follow-up 5)", "agent": "opencode", "phase": "P2", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P2-10", "title": "Definitive sweep k-fold calibration pass (follow-up 5)", "agent": "claude", "phase": "P2", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P2-11", "title": "Definitive sweep cell (follow-up 6)", "agent": "claude-lead", "phase": "P2", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-P2-12", "title": "Definitive sweep k-fold calibration pass (follow-up 6)", "agent": "codex", "phase": "P2", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-P2-13", "title": "Definitive sweep cell (follow-up 7)", "agent": "kimi", "phase": "P2", "completed_at": "2026-05-13T13:12:00+00:00"}, {"task_id": "task-p04-P2-14", "title": "Definitive sweep k-fold calibration pass (follow-up 7)", "agent": "opencode", "phase": "P2", "completed_at": "2026-05-14T14:23:00+00:00"}, {"task_id": "task-p04-P2-15", "title": "Definitive sweep cell (follow-up 8)", "agent": "claude", "phase": "P2", "completed_at": "2026-05-15T15:34:00+00:00"}, {"task_id": "task-p04-P3b-01", "title": "External baseline integration", "agent": "claude-lead", "phase": "P3b", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P3b-02", "title": "Reranker diagnostic (hard-negative balanced)", "agent": "codex", "phase": "P3b", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P3b-03", "title": "External baseline integration (follow-up 2)", "agent": "kimi", "phase": "P3b", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P3b-04", "title": "Reranker diagnostic (hard-negative balanced) (follow-up 2)", "agent": "opencode", "phase": "P3b", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P3b-05", "title": "External baseline integration (follow-up 3)", "agent": "claude", "phase": "P3b", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P3b-06", "title": "Reranker diagnostic (hard-negative balanced) (follow-up 3)", "agent": "claude-lead", "phase": "P3b", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P3b-07", "title": "External baseline integration (follow-up 4)", "agent": "codex", "phase": "P3b", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P3b-08", "title": "Reranker diagnostic (hard-negative balanced) (follow-up 4)", "agent": "kimi", "phase": "P3b", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P3b-09", "title": "External baseline integration (follow-up 5)", "agent": "opencode", "phase": "P3b", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P3b-10", "title": "Reranker diagnostic (hard-negative balanced) (follow-up 5)", "agent": "claude", "phase": "P3b", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P3b-11", "title": "External baseline integration (follow-up 6)", "agent": "claude-lead", "phase": "P3b", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-P3t-01", "title": "Task-separation metric recompute", "agent": "claude-lead", "phase": "P3t", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P4-01", "title": "Attack-family taxonomy build", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P4-02", "title": "External transfer sanity check", "agent": "codex", "phase": "P4", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P4-03", "title": "Attack-family taxonomy build (follow-up 2)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P4-04", "title": "External transfer sanity check (follow-up 2)", "agent": "opencode", "phase": "P4", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P4-05", "title": "Attack-family taxonomy build (follow-up 3)", "agent": "claude", "phase": "P4", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-P4-06", "title": "External transfer sanity check (follow-up 3)", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-P4-07", "title": "Attack-family taxonomy build (follow-up 4)", "agent": "codex", "phase": "P4", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-P4-08", "title": "External transfer sanity check (follow-up 4)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-P4-09", "title": "Attack-family taxonomy build (follow-up 5)", "agent": "opencode", "phase": "P4", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-P4-10", "title": "External transfer sanity check (follow-up 5)", "agent": "claude", "phase": "P4", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-P4-11", "title": "Attack-family taxonomy build (follow-up 6)", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-P4-12", "title": "External transfer sanity check (follow-up 6)", "agent": "codex", "phase": "P4", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-P4-13", "title": "Attack-family taxonomy build (follow-up 7)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-13T13:12:00+00:00"}, {"task_id": "task-p04-P4-14", "title": "External transfer sanity check (follow-up 7)", "agent": "opencode", "phase": "P4", "completed_at": "2026-05-14T14:23:00+00:00"}, {"task_id": "task-p04-P4-15", "title": "Attack-family taxonomy build (follow-up 8)", "agent": "claude", "phase": "P4", "completed_at": "2026-05-15T15:34:00+00:00"}, {"task_id": "task-p04-P4-16", "title": "External transfer sanity check (follow-up 8)", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-16T16:45:00+00:00"}, {"task_id": "task-p04-P4-17", "title": "Attack-family taxonomy build (follow-up 9)", "agent": "codex", "phase": "P4", "completed_at": "2026-05-17T09:56:00+00:00"}, {"task_id": "task-p04-P4-18", "title": "External transfer sanity check (follow-up 9)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-18T10:07:00+00:00"}, {"task_id": "task-p04-P4-19", "title": "Attack-family taxonomy build (follow-up 10)", "agent": "opencode", "phase": "P4", "completed_at": "2026-05-19T11:18:00+00:00"}, {"task_id": "task-p04-P4-20", "title": "External transfer sanity check (follow-up 10)", "agent": "claude", "phase": "P4", "completed_at": "2026-05-20T12:29:00+00:00"}, {"task_id": "task-p04-P4-21", "title": "Attack-family taxonomy build (follow-up 11)", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-21T13:40:00+00:00"}, {"task_id": "task-p04-P4-22", "title": "External transfer sanity check (follow-up 11)", "agent": "codex", "phase": "P4", "completed_at": "2026-05-22T14:51:00+00:00"}, {"task_id": "task-p04-P4-23", "title": "Attack-family taxonomy build (follow-up 12)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-23T15:02:00+00:00"}, {"task_id": "task-p04-P4-24", "title": "External transfer sanity check (follow-up 12)", "agent": "opencode", "phase": "P4", "completed_at": "2026-05-24T16:13:00+00:00"}, {"task_id": "task-p04-P4-25", "title": "Attack-family taxonomy build (follow-up 13)", "agent": "claude", "phase": "P4", "completed_at": "2026-05-25T09:24:00+00:00"}, {"task_id": "task-p04-P4-26", "title": "External transfer sanity check (follow-up 13)", "agent": "claude-lead", "phase": "P4", "completed_at": "2026-05-26T10:35:00+00:00"}, {"task_id": "task-p04-P4-27", "title": "Attack-family taxonomy build (follow-up 14)", "agent": "codex", "phase": "P4", "completed_at": "2026-05-27T11:46:00+00:00"}, {"task_id": "task-p04-P4-28", "title": "External transfer sanity check (follow-up 14)", "agent": "kimi", "phase": "P4", "completed_at": "2026-05-01T12:57:00+00:00"}, {"task_id": "task-p04-P5-01", "title": "100K-scale capstone cell", "agent": "claude-lead", "phase": "P5", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-P5-02", "title": "Cross-cell analysis", "agent": "codex", "phase": "P5", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-P5-03", "title": "100K-scale capstone cell (follow-up 2)", "agent": "kimi", "phase": "P5", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-P5-04", "title": "Cross-cell analysis (follow-up 2)", "agent": "opencode", "phase": "P5", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-P5-05", "title": "100K-scale capstone cell (follow-up 3)", "agent": "claude", "phase": "P5", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-C-01", "title": "Render benchmark figure", "agent": "claude-lead", "phase": "C", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-C-02", "title": "Render benchmark table", "agent": "codex", "phase": "C", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-C-03", "title": "Render benchmark figure (follow-up 2)", "agent": "kimi", "phase": "C", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-D-01", "title": "Independent number validation pass", "agent": "claude-lead", "phase": "D", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-D-02", "title": "Independent number validation pass (follow-up 2)", "agent": "codex", "phase": "D", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-W-01", "title": "Manuscript section rewrite", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-W-02", "title": "Scale-validation section integration", "agent": "codex", "phase": "W", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-W-03", "title": "Manuscript section rewrite (follow-up 2)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-W-04", "title": "Scale-validation section integration (follow-up 2)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-W-05", "title": "Manuscript section rewrite (follow-up 3)", "agent": "claude", "phase": "W", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-W-06", "title": "Scale-validation section integration (follow-up 3)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-W-07", "title": "Manuscript section rewrite (follow-up 4)", "agent": "codex", "phase": "W", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-W-08", "title": "Scale-validation section integration (follow-up 4)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-W-09", "title": "Manuscript section rewrite (follow-up 5)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-W-10", "title": "Scale-validation section integration (follow-up 5)", "agent": "claude", "phase": "W", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-W-11", "title": "Manuscript section rewrite (follow-up 6)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-W-12", "title": "Scale-validation section integration (follow-up 6)", "agent": "codex", "phase": "W", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-W-13", "title": "Manuscript section rewrite (follow-up 7)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-13T13:12:00+00:00"}, {"task_id": "task-p04-W-14", "title": "Scale-validation section integration (follow-up 7)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-14T14:23:00+00:00"}, {"task_id": "task-p04-W-15", "title": "Manuscript section rewrite (follow-up 8)", "agent": "claude", "phase": "W", "completed_at": "2026-05-15T15:34:00+00:00"}, {"task_id": "task-p04-W-16", "title": "Scale-validation section integration (follow-up 8)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-16T16:45:00+00:00"}, {"task_id": "task-p04-W-17", "title": "Manuscript section rewrite (follow-up 9)", "agent": "codex", "phase": "W", "completed_at": "2026-05-17T09:56:00+00:00"}, {"task_id": "task-p04-W-18", "title": "Scale-validation section integration (follow-up 9)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-18T10:07:00+00:00"}, {"task_id": "task-p04-W-19", "title": "Manuscript section rewrite (follow-up 10)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-19T11:18:00+00:00"}, {"task_id": "task-p04-W-20", "title": "Scale-validation section integration (follow-up 10)", "agent": "claude", "phase": "W", "completed_at": "2026-05-20T12:29:00+00:00"}, {"task_id": "task-p04-W-21", "title": "Manuscript section rewrite (follow-up 11)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-21T13:40:00+00:00"}, {"task_id": "task-p04-W-22", "title": "Scale-validation section integration (follow-up 11)", "agent": "codex", "phase": "W", "completed_at": "2026-05-22T14:51:00+00:00"}, {"task_id": "task-p04-W-23", "title": "Manuscript section rewrite (follow-up 12)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-23T15:02:00+00:00"}, {"task_id": "task-p04-W-24", "title": "Scale-validation section integration (follow-up 12)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-24T16:13:00+00:00"}, {"task_id": "task-p04-W-25", "title": "Manuscript section rewrite (follow-up 13)", "agent": "claude", "phase": "W", "completed_at": "2026-05-25T09:24:00+00:00"}, {"task_id": "task-p04-W-26", "title": "Scale-validation section integration (follow-up 13)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-26T10:35:00+00:00"}, {"task_id": "task-p04-W-27", "title": "Manuscript section rewrite (follow-up 14)", "agent": "codex", "phase": "W", "completed_at": "2026-05-27T11:46:00+00:00"}, {"task_id": "task-p04-W-28", "title": "Scale-validation section integration (follow-up 14)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-01T12:57:00+00:00"}, {"task_id": "task-p04-W-29", "title": "Manuscript section rewrite (follow-up 15)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-02T13:08:00+00:00"}, {"task_id": "task-p04-W-30", "title": "Scale-validation section integration (follow-up 15)", "agent": "claude", "phase": "W", "completed_at": "2026-05-03T14:19:00+00:00"}, {"task_id": "task-p04-W-31", "title": "Manuscript section rewrite (follow-up 16)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-04T15:30:00+00:00"}, {"task_id": "task-p04-W-32", "title": "Scale-validation section integration (follow-up 16)", "agent": "codex", "phase": "W", "completed_at": "2026-05-05T16:41:00+00:00"}, {"task_id": "task-p04-W-33", "title": "Manuscript section rewrite (follow-up 17)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-06T09:52:00+00:00"}, {"task_id": "task-p04-W-34", "title": "Scale-validation section integration (follow-up 17)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-07T10:03:00+00:00"}, {"task_id": "task-p04-W-35", "title": "Manuscript section rewrite (follow-up 18)", "agent": "claude", "phase": "W", "completed_at": "2026-05-08T11:14:00+00:00"}, {"task_id": "task-p04-W-36", "title": "Scale-validation section integration (follow-up 18)", "agent": "claude-lead", "phase": "W", "completed_at": "2026-05-09T12:25:00+00:00"}, {"task_id": "task-p04-W-37", "title": "Manuscript section rewrite (follow-up 19)", "agent": "codex", "phase": "W", "completed_at": "2026-05-10T13:36:00+00:00"}, {"task_id": "task-p04-W-38", "title": "Scale-validation section integration (follow-up 19)", "agent": "kimi", "phase": "W", "completed_at": "2026-05-11T14:47:00+00:00"}, {"task_id": "task-p04-W-39", "title": "Manuscript section rewrite (follow-up 20)", "agent": "opencode", "phase": "W", "completed_at": "2026-05-12T15:58:00+00:00"}, {"task_id": "task-p04-W-40", "title": "Scale-validation section integration (follow-up 20)", "agent": "claude", "phase": "W", "completed_at": "2026-05-13T16:09:00+00:00"}, {"task_id": "task-p04-RV-01", "title": "Peer review round response", "agent": "claude-lead", "phase": "RV", "completed_at": "2026-05-01T09:00:00+00:00"}, {"task_id": "task-p04-RV-02", "title": "Submission-hygiene checklist item", "agent": "codex", "phase": "RV", "completed_at": "2026-05-02T10:11:00+00:00"}, {"task_id": "task-p04-RV-03", "title": "Peer review round response (follow-up 2)", "agent": "kimi", "phase": "RV", "completed_at": "2026-05-03T11:22:00+00:00"}, {"task_id": "task-p04-RV-04", "title": "Submission-hygiene checklist item (follow-up 2)", "agent": "opencode", "phase": "RV", "completed_at": "2026-05-04T12:33:00+00:00"}, {"task_id": "task-p04-RV-05", "title": "Peer review round response (follow-up 3)", "agent": "claude", "phase": "RV", "completed_at": "2026-05-05T13:44:00+00:00"}, {"task_id": "task-p04-RV-06", "title": "Submission-hygiene checklist item (follow-up 3)", "agent": "claude-lead", "phase": "RV", "completed_at": "2026-05-06T14:55:00+00:00"}, {"task_id": "task-p04-RV-07", "title": "Peer review round response (follow-up 4)", "agent": "codex", "phase": "RV", "completed_at": "2026-05-07T15:06:00+00:00"}, {"task_id": "task-p04-RV-08", "title": "Submission-hygiene checklist item (follow-up 4)", "agent": "kimi", "phase": "RV", "completed_at": "2026-05-08T16:17:00+00:00"}, {"task_id": "task-p04-RV-09", "title": "Peer review round response (follow-up 5)", "agent": "opencode", "phase": "RV", "completed_at": "2026-05-09T09:28:00+00:00"}, {"task_id": "task-p04-RV-10", "title": "Submission-hygiene checklist item (follow-up 5)", "agent": "claude", "phase": "RV", "completed_at": "2026-05-10T10:39:00+00:00"}, {"task_id": "task-p04-RV-11", "title": "Peer review round response (follow-up 6)", "agent": "claude-lead", "phase": "RV", "completed_at": "2026-05-11T11:50:00+00:00"}, {"task_id": "task-p04-RV-12", "title": "Submission-hygiene checklist item (follow-up 6)", "agent": "codex", "phase": "RV", "completed_at": "2026-05-12T12:01:00+00:00"}, {"task_id": "task-p04-RV-13", "title": "Peer review round response (follow-up 7)", "agent": "kimi", "phase": "RV", "completed_at": "2026-05-13T13:12:00+00:00"}, {"task_id": "task-p04-RV-14", "title": "Submission-hygiene checklist item (follow-up 7)", "agent": "opencode", "phase": "RV", "completed_at": "2026-05-14T14:23:00+00:00"}, {"task_id": "task-p04-RV-15", "title": "Peer review round response (follow-up 8)", "agent": "claude", "phase": "RV", "completed_at": "2026-05-15T15:34:00+00:00"}, {"task_id": "task-p04-RV-16", "title": "Submission-hygiene checklist item (follow-up 8)", "agent": "claude-lead", "phase": "RV", "completed_at": "2026-05-16T16:45:00+00:00"}, {"task_id": "task-p04-RV-17", "title": "Peer review round response (follow-up 9)", "agent": "codex", "phase": "RV", "completed_at": "2026-05-17T09:56:00+00:00"}, {"task_id": "task-p04-RV-18", "title": "Submission-hygiene checklist item (follow-up 9)", "agent": "kimi", "phase": "RV", "completed_at": "2026-05-18T10:07:00+00:00"}, {"task_id": "task-p04-RV-19", "title": "Peer review round response (follow-up 10)", "agent": "opencode", "phase": "RV", "completed_at": "2026-05-19T11:18:00+00:00"}, {"task_id": "task-p04-RV-20", "title": "Submission-hygiene checklist item (follow-up 10)", "agent": "claude", "phase": "RV", "completed_at": "2026-05-20T12:29:00+00:00"}], "drafts": [], "phase_counts": {"F0": 50, "P1a": 10, "P1b": 8, "P1cA": 12, "P1cB": 10, "P2": 15, "P3b": 11, "P3t": 1, "P4": 28, "P5": 5, "C": 3, "D": 2, "W": 40, "RV": 20}, "phases_meta": {"title": "Horizon Analytics \u2014 large-scale benchmark elevation", "phases": [{"id": "F0", "name": "Foundation (env/data/benchmark/method/baselines)", "status": "done", "gate": "worker fleet + real substrate; unified data prep + k-fold calibration; all arms wired"}, {"id": "P1a", "name": "In-family label-source matrix (5-seed)", "status": "done", "gate": "primary method robust; weak baselines collapse; thesis confirmed in-family"}, {"id": "P1b", "name": "Human-anchor ceiling + panel", "status": "done", "gate": "primary method reaches human-label ceiling; ceiling panel QA-passed"}, {"id": "P1cA", "name": "Proxy-floor run (limitation)", "status": "done", "gate": "in-family reproduces P1a; proxy-unseen collapses to floor; panel rendered"}, {"id": "P1cB", "name": "Structured-unseen family (build+gate)", "status": "done", "gate": "smoke gate passed all thresholds; fallback thesis confirmed (primary+aug complementary)"}, {"id": "P2", "name": "Definitive sweep (all arms + structured-unseen)", "status": "done", "gate": "full arms x seeds x strengths grid complete, k-fold calibrated; source-of-truth for main analysis"}, {"id": "P3b", "name": "External baselines", "status": "done", "gate": "external baseline + reranker diagnostics integrated into appendix"}, {"id": "P3t", "name": "Task separation analysis", "status": "done", "gate": "leader-QA-verified; canonical task collapsed; clean task separation confirmed"}, {"id": "P4", "name": "Multi-family + real transfer slice", "status": "done", "gate": "attack-family taxonomy + external transfer sanity check integrated"}, {"id": "P5", "name": "100K-scale capstone (minimal-viable)", "status": "done", "gate": "full grid complete; cross-cell analysis; thesis holds at 100K scale"}, {"id": "C", "name": "Render all benchmark assets", "status": "done", "gate": "all figures + tables regenerated from source data with faithful flags; present in compiled report"}, {"id": "D", "name": "Independent number validation", "status": "done", "gate": "independent script recomputed all table cells from raw results; all match"}, {"id": "W", "name": "Manuscript restructure", "status": "done", "gate": "reframe integrated; scale-validation section added; report compiles clean"}, {"id": "RV", "name": "Peer review round", "status": "done", "gate": "review rounds complete; optional baselines integrated; final bundle delivered"}]}, "phase_state": "defined", "counts": {"pending": 0, "claimed": 0, "completed": 0, "failed": 0, "approved": 215, "drafts": 0}}}};
+const DEMO_PID = SNAPSHOT.demo_project;          // the 05 tab we animate
+const ORDER = SNAPSHOT.order;                    // tab order (project ids)
+
+// deep clone helpers
+const clone = o => JSON.parse(JSON.stringify(o));
+let BASE = clone(SNAPSHOT);                      // pristine, for reset
+let STATE = clone(SNAPSHOT);                     // live working copy
+let CURRENT = "overview";
+
+// ── DOM helpers (text only, never innerHTML — XSS-safe, faithful to hub) ─────
+function el(tag, cls, text){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(text != null) e.textContent = text;
+  return e;
+}
+function span(text, color){ const s = el("span", null, text); if(color) s.style.color = color; return s; }
+const KNOWN = ["codex","kimi","opencode","claude","claude-lead","any","detached"];
+function badge(a){ return el("span", "badge b-" + (KNOWN.includes(a)?a:"any"), a); }
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+function renderTabs(){
+  const host = document.getElementById("tabs");
+  host.replaceChildren();
+  const ov = el("div", "tab" + (CURRENT==="overview" ? " active" : ""), "Overview");
+  ov.dataset.tab = "overview";
+  host.appendChild(ov);
+  for(const p of STATE.overview.projects){
+    const t = el("div", "tab" + (CURRENT===p.id ? " active" : ""));
+    t.dataset.tab = p.id;
+    t.appendChild(el("span", null, p.name));
+    if(!p.missing && p.counts){
+      if(p.counts.claimed) { t.appendChild(el("span","mini hot", p.counts.claimed + "▶")); }
+      if(p.counts.failed)  { t.appendChild(el("span","mini bad", p.counts.failed + "✗")); }
+      t.appendChild(el("span","mini", "✓" + p.counts.approved));
+    }
+    host.appendChild(t);
+  }
+}
+
+// ── Board cards (faithful port of hub makeCard) ──────────────────────────────
+function makeCard(t, kind){
+  const agent = t.agent || t.assigned_to || "any";
+  const cls = "card" + (kind==="failed"?" failed":kind==="claimed"?" working":(kind==="completed"||kind==="approved")?" done":"")
+            + (t._anim?" anim":"");
+  const c = el("div", cls);
+  c.appendChild(el("div", "t", t.title || "(untitled)"));
+  const m = el("div", "m");
+  m.appendChild(badge(agent));
+  if(kind==="pending"){
+    m.appendChild(span("p" + t.priority));
+    if(t.auth_requeue_count > 0) m.appendChild(span("⏸ auth retry " + t.auth_requeue_count, "var(--work)"));
+    if(t.rerouted_from) m.appendChild(span("↪ from " + t.rerouted_from, "var(--work)"));
+  }
+  if(kind==="completed"){ m.appendChild(span("✓","var(--ok)")); m.appendChild(span((t.completed_at||"").slice(11,19))); }
+  if(kind==="failed"){ m.appendChild(span("✗ exit " + (t.exit_code ?? "?"), "var(--fail)")); }
+  if(kind==="claimed"){ const d = el("span","dot pulse"); d.style.background=t.leader_run?"var(--lead)":"var(--work)"; m.appendChild(d); m.appendChild(span(t.leader_run ? "LEADER ▶ detached run" : (t.detached?"detached run…":"working…"), t.leader_run?"var(--lead)":null)); }
+  if(kind==="approved"){ m.appendChild(span("✓","var(--ok)")); if(t.phase) m.appendChild(span("P"+t.phase)); }
+  c.appendChild(m);
+  c.appendChild(el("div", "tid", t.task_id));
+  return c;
+}
+function fill(id, arr, kind){
+  const host = document.getElementById(id);
+  host.replaceChildren();
+  if(!arr.length){ host.appendChild(el("div","empty","—")); return; }
+  for(const t of arr) host.appendChild(makeCard(t, kind));
+}
+
+// ── Agent header strip (faithful + an instance ×N count: kimi×3/opencode×3) ─
+function renderAgents(agents, claimed){
+  const host = document.getElementById("agents");
+  host.replaceChildren();
+  if(!agents) return;
+  const busy = {};
+  for(const c of (claimed||[])){ if(c.agent && !c.detached) busy[c.agent] = (busy[c.agent]||0)+1; }
+  for(const [a, s] of Object.entries(agents)){
+    const wrap = el("div", "agent");
+    const working = (s.status==="working") || busy[a];
+    const dot = el("span", (working||s.status==="leading") ? "dot pulse" : "dot");
+    dot.style.background = working ? "var(--work)" : s.status==="leading" ? "var(--lead)" : "var(--dim)";
+    wrap.appendChild(dot);
+    wrap.appendChild(badge(a));
+    if(busy[a] > 1) wrap.appendChild(el("span","xn","×"+busy[a]));
+    const info = working ? "working…" : (s.role || s.status);
+    wrap.appendChild(el("span", "role", info));
+    host.appendChild(wrap);
+  }
+}
+
+// ── Progress / pipeline line (faithful port) ─────────────────────────────────
+function renderProgress(d){
+  const host = document.getElementById("progress");
+  host.replaceChildren();
+  host.appendChild(el("span","big","✓ " + d.counts.approved + " approved"));
+  const counts = d.phase_counts || {};
+  const meta = d.phases_meta || {};
+  const phases = meta.phases;
+  const pstate = d.phase_state;
+  if(pstate === "awaiting_definition"){
+    host.appendChild(el("span","lbl","pipeline"));
+    const c = el("span","chip","⏳ awaiting leader definition"); c.style.borderColor = "var(--work)";
+    host.appendChild(c);
+  } else if(phases && phases.length){
+    const ICON = {done:"✓", active:"▶", blocked:"⛔", pending:"·"};
+    const total = phases.length;
+    const done = phases.filter(p => p.status === "done").length;
+    const active = phases.filter(p => p.status === "active");
+    const key = "fleetPhases:" + CURRENT;
+    const stored = localStorage.getItem(key);
+    const collapsed = stored ? (stored === "closed") : (total > 6);
+    const head = el("span", "phasetoggle");
+    if(collapsed){
+      let summ;
+      if(active.length){ const a = active[0]; summ = "▶ P" + a.id + " " + a.name + (active.length > 1 ? " +" + (active.length - 1) : ""); }
+      else if(done === total){ summ = "✓ all done"; }
+      else { const np = phases.find(p => p.status !== "done"); summ = np ? "· next P" + np.id : "· pending"; }
+      head.textContent = "▸ " + (meta.title || "pipeline") + " — " + summ + " · " + done + "/" + total;
+    } else { head.textContent = "▾ " + (meta.title || "pipeline"); }
+    head.onclick = () => { localStorage.setItem(key, collapsed ? "open" : "closed"); renderProgress(d); };
+    host.appendChild(head);
+    if(!collapsed){
+      for(const p of phases){
+        const n = counts[p.id] || 0;
+        const icon = ICON[p.status] || "·";
+        let txt = "P" + p.id + " " + p.name + " " + icon;
+        if(p.gate) txt += " " + p.gate;
+        if(n) txt += " (" + n + "t)";
+        const chip = el("span","chip",txt);
+        if(p.status==="done") chip.style.borderColor = "var(--ok)";
+        else if(p.status==="active") chip.style.borderColor = "var(--work)";
+        else if(p.status==="blocked") chip.style.borderColor = "var(--fail)";
+        host.appendChild(chip);
+      }
+    }
+  } else if(pstate === "no_pipeline"){ /* flat one-shot */ }
+  else {
+    host.appendChild(el("span","lbl","by phase"));
+    Object.keys(counts).sort().forEach(p => host.appendChild(el("span","chip","Phase " + p + ": " + counts[p])));
+  }
+  host.appendChild(el("span","lbl","live"));
+  host.appendChild(el("span","chip", d.counts.pending + " pending"));
+  host.appendChild(el("span","chip", d.counts.claimed + " in-progress"));
+  host.appendChild(el("span","chip", d.counts.completed + " awaiting QA"));
+  if(d.counts.drafts) host.appendChild(el("span","chip", d.counts.drafts + " drafts (held)"));
+  if(d.counts.failed) host.appendChild(el("span","chip", d.counts.failed + " failed"));
+}
+
+// ── Leader-continuity strip (faithful port) ──────────────────────────────────
+function renderContinuity(c){
+  const host = document.getElementById("continuity");
+  host.replaceChildren();
+  if(!c){ host.style.display = "none"; return; }
+  host.style.display = "flex";
+  host.appendChild(el("span","lbl","leader continuity"));
+  function chip(on, txt, half){
+    const s = el("span","chip",(on ? "● " : half ? "◐ " : "○ ") + txt);
+    s.style.borderColor = on ? "var(--ok)" : half ? "var(--work)" : "var(--border)";
+    if(!on && !half) s.style.color = "var(--dim)";
+    return s;
+  }
+  host.appendChild(chip(c.wait_sentinels > 0, "wait sentinels ×" + c.wait_sentinels));
+  host.appendChild(chip(c.qa_notify, "qa_notify"));
+  let cronTxt = "durable cron";
+  if(c.durable_cron_present) cronTxt += c.durable_cron >= 0 ? " ×" + c.durable_cron : " (present)";
+  host.appendChild(chip(c.durable_cron_present && c.durable_cron !== 0, cronTxt));
+  host.appendChild(el("span","lbl","← in-memory /loop crons leave no disk trace, can't show here"));
+  const ld = c.launchd || {};
+  let ltxt = "launchd";
+  if(ld.installed) ltxt += ld.loaded ? " loaded" : " INSTALLED·UNLOADED";
+  if(ld.interval) ltxt += " · " + Math.round(ld.interval/60) + "m";
+  host.appendChild(chip(ld.installed && ld.loaded, ltxt, ld.installed && !ld.loaded));
+  host.appendChild(chip(c.caretaker, "caretaker (no-LLM floor)"));
+  if(c.last_pass_age_s != null){
+    const m = Math.round(c.last_pass_age_s/60);
+    host.appendChild(el("span","chip","last pass " + (m < 60 ? m + "m" : Math.round(m/60) + "h") + " ago"));
+  }
+}
+
+// ── Overview (faithful port) ─────────────────────────────────────────────────
+function renderOverview(d){
+  const host = document.getElementById("overview");
+  host.replaceChildren();
+  const cap = el("div","proj");
+  const capline = el("div","capline");
+  capline.appendChild(el("span","lbl","global capacity"));
+  for(const c of (d.capacity||[])){
+    if(c.no_data){
+      const chip = el("span","chip", c.agent + " · reactive-only (no quota events yet)");
+      chip.style.color = "var(--dim)"; capline.appendChild(chip); continue;
+    }
+    const drained = c.drained_until && (c.drained_until*1000 > Date.now());
+    let txt = c.agent + " · 5h used " + Math.round(c.used_5h_pct||0) + "% · wk used " + Math.round(c.used_week_pct||0) + "%";
+    if(c.rung) txt += " · rung " + c.rung;
+    if(drained) txt += " · DRAINED";
+    const chip = el("span","chip",txt);
+    if(drained) chip.style.borderColor = "var(--fail)";
+    else if((c.used_5h_pct||0) >= 80) chip.style.borderColor = "var(--work)";
+    capline.appendChild(chip);
+  }
+  cap.appendChild(capline);
+  host.appendChild(cap);
+  for(const p of (d.projects||[])){
+    const box = el("div","proj");
+    const head = el("div","head");
+    head.appendChild(el("span","nm", p.name));
+    head.appendChild(el("span","rt", p.root));
+    const nums = el("div","nums");
+    if(p.missing){ nums.appendChild(span("(.fleet missing)", "var(--fail)")); }
+    else {
+      nums.appendChild(span(p.counts.pending + " pending", "var(--dim)"));
+      nums.appendChild(span(p.counts.claimed + " ▶", "var(--work)"));
+      nums.appendChild(span(p.counts.completed + " QA", "#58a6ff"));
+      nums.appendChild(span("✓" + p.counts.approved, "var(--ok)"));
+      if(p.counts.failed) nums.appendChild(span(p.counts.failed + " ✗", "var(--fail)"));
+    }
+    head.appendChild(nums);
+    box.appendChild(head);
+    const hot = el("div","hot");
+    for(const c of (p.claimed||[])) hot.appendChild(el("span","hotcard","▶ [" + c.agent + "] " + c.title));
+    for(const f of (p.failed||[]))  hot.appendChild(el("span","hotcard f","✗ " + f.title));
+    if(hot.childNodes.length) box.appendChild(hot);
+    host.appendChild(box);
+  }
+}
+
+// ── faux "live" status pill (mimics the real staleness indicator) ────────────
+function paintStatus(){
+  const up = document.getElementById("updated"); if(!up) return;
+  up.replaceChildren();
+  const dot = el("span","dot pulse"); dot.style.background="var(--ok)";
+  up.appendChild(dot);
+  up.appendChild(document.createTextNode(" live · " + STATE.clock + " (1s ago)"));
+}
+
+// ── master render: read STATE, paint whichever tab is current ────────────────
+function render(){
+  renderTabs();
+  const ovEl = document.getElementById("overview");
+  const bdEl = document.getElementById("board");
+  const prEl = document.getElementById("progress");
+  const ctEl = document.getElementById("continuity");
+  if(CURRENT === "overview"){
+    ovEl.style.display = "flex"; bdEl.style.display = "none";
+    prEl.style.display = "none"; ctEl.style.display = "none";
+    renderAgents(null); renderOverview(STATE.overview);
+  } else {
+    ovEl.style.display = "none"; bdEl.style.display = "grid"; prEl.style.display = "flex";
+    const d = STATE.projects[CURRENT];
+    for(const k of ["pending","claimed","completed","failed","approved"])
+      document.getElementById("n-"+k).textContent = d.counts[k];
+    fill("c-pending", d.pending, "pending");
+    fill("c-claimed", d.claimed, "claimed");
+    fill("c-completed", d.completed, "completed");
+    fill("c-approved", d.approved, "approved");
+    fill("c-failed", d.failed, "failed");
+    renderAgents(d.agents, d.claimed);
+    renderProgress(d);
+    renderContinuity(d.continuity);
+  }
+  paintStatus();
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  SIMULATION — fabricated 05 worker wave (demo spec).                       ║
+// ║  Instance caps: kimi×3, opencode×3, codex×1, claude×1. Per-agent           ║
+// ║  completions are STAGGERED (no two same-agent Done at the same instant).   ║
+// ║  Cycle = 120s; some tasks (codex) stay In Progress when it loops.          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+const CYCLE = 120;                 // seconds per loop (2 minutes)
+
+// Each task derives its column purely from elapsed vs its timestamps.
+// appear→pending, claim→in-progress(working), done→Done·QA, approve→Approved.
+// done:null / approve:null  ⇒  stays in that state through the loop (realistic).
+// kimi done@15s, opencode#1 done@30s are the demo's explicit anchors.
+const WAVE = [
+  {id:"sim-k1", agent:"kimi",     phase:"4", title:"Lit synthesis: selective-prediction calibration under distribution shift", appear:24, claim:26, done:41, approve:46},
+  {id:"sim-o1", agent:"opencode", phase:"4", title:"Add within-seed paired bootstrap to dose-response runner (rework §2)",    appear:24, claim:28, done:58, approve:63},
+  {id:"sim-k2", agent:"kimi",     phase:"4", title:"Synthesize dose-response across 5 seeds (paired CIs)",                    appear:24, claim:30, done:55, approve:60},
+  {id:"sim-cl", agent:"claude",   phase:"4", title:"Validation report §4 — honest directional-replication verdict",          appear:24, claim:32, done:69, approve:74},
+  {id:"sim-o2", agent:"opencode", phase:"4", title:"Sibling tests for estimator.py (numerical exactness)",                   appear:24, claim:34, done:76, approve:81},
+  {id:"sim-k3", agent:"kimi",     phase:"4", title:"Cross-check replication formula vs reference implementation",            appear:24, claim:37, done:86, approve:91},
+  {id:"sim-o3", agent:"opencode", phase:"4", title:"Aggregator: merge per-cell results → synthesis inputs",                  appear:24, claim:40, done:107,approve:112},
+  {id:"sim-cx", agent:"codex",    phase:"4", title:"Banded evidence-permutation sampler — dedup + p*=0.95 correctness",      appear:24, claim:43, done:null,approve:null},
+];
+
+// Captions: {t, title, sub, accent?}
+const CAPS = [
+  {t:0.4,  title:"Overview — one hub, every project",                  sub:"Per-project counts + the global token-capacity line. codex telemetry sample (5h 38% · wk 19%).", accent:"--lead"},
+  {t:6.3,  title:"01 · Northwind Platform Revamp",                     sub:"56 tasks approved · 12-phase pipeline complete (collapsed → ✓ all done).", accent:"--opencode"},
+  {t:12.3, title:"04 · Horizon Analytics — large-scale benchmark elevation", sub:"215 tasks approved across a 14-phase research pipeline — heavy parallel throughput.", accent:"--codex"},
+  {t:18.3, title:"05 · Atlas Research replication — Phase 4 active",  sub:"A multi-day detached large-model fine-tune is mid-run. Now watch the worker fleet take a fresh wave.", accent:"--kimi"},
+  {t:24.3, title:"Leader dispatches a wave → 8 tasks land in Pending", sub:"Self-contained specs, routed assigned_to:any. The atomic claim race is the load balancer.", accent:"--work"},
+  {t:26.5, title:"Atomic rename() claim — idle instances pull work",   sub:"kimi×3 · opencode×3 · codex×1 · claude×1, all claiming in parallel into In Progress.", accent:"--work"},
+  {t:42,   title:"kimi #1 finished in 15s → Done · Pending QA",         sub:"Workhorse (K2.6, flat-rate quota) clears reading-heavy synthesis fast.", accent:"--kimi"},
+  {t:47,   title:"Leader QA gate passed → Approved ✓",                  sub:"Mechanical floor (artifact + predicates) → grader → leader. Nothing reaches Approved unreviewed.", accent:"--ok"},
+  {t:59,   title:"opencode #1 done at 30s → Done · Pending QA",         sub:"glm-5.2 bulk coding. Note instances finish on their own clocks — never two at once.", accent:"--opencode"},
+  {t:70,   title:"claude (Sonnet 4.6) finishes the science writeup",    sub:"Reserve tier for nuanced method/writing — above the workhorses, below codex's top tier.", accent:"--claude"},
+  {t:88,   title:"Workhorses clear; codex keeps grinding",             sub:"codex (gpt-5.5, reserve) holds the hardest correctness task — quota-scarce, used only where it must be.", accent:"--codex"},
+  {t:108,  title:"opencode #3 done → Approved ✓",                       sub:"Approved column climbs as each QA pass lands. Throughput = clones × staggered completion.", accent:"--opencode"},
+  {t:114,  title:"Loop restarts — codex still In Progress",            sub:"Realistic: the reserve tier runs longest. The board never blocks on it; the DAG flows around it.", accent:"--lead"},
+];
+
+// ── cursor + click ───────────────────────────────────────────────────────────
+const cursor = document.getElementById("cursor");
+function moveCursorTo(sel){
+  const t = document.querySelector(sel); if(!t) return;
+  const r = t.getBoundingClientRect();
+  cursor.style.left = (r.left + r.width/2 - 4) + "px";
+  cursor.style.top  = (r.top + r.height/2 - 2) + "px";
+}
+function clickFx(){
+  cursor.classList.add("press"); setTimeout(()=>cursor.classList.remove("press"), 180);
+  const r = cursor.getBoundingClientRect();
+  const rip = el("div","ripple");
+  rip.style.left = (r.left+4) + "px"; rip.style.top = (r.top+2) + "px";
+  document.body.appendChild(rip); setTimeout(()=>rip.remove(), 600);
+}
+// scripted tab visits: cursor glides, then "clicks" and switches
+const TABS_SEQ = [
+  {t:1,  id:"overview"},
+  {t:5.4,id:ORDER[1]},   // 01
+  {t:11.4,id:ORDER[2]},  // 04
+  {t:17.4,id:ORDER[0]},  // 05 (demo project — first in order)
+];
+
+// ── caption display ────────────────────────────────────────────────────────
+let capShownIdx = -1;
+function showCaption(c){
+  const box = document.getElementById("caption");
+  box.querySelector(".ct").textContent = c.title;
+  box.querySelector(".cs").textContent = c.sub || "";
+  box.style.borderLeftColor = "var(" + (c.accent||"--kimi") + ")";
+  box.classList.add("show");
+}
+
+// ── per-tick state assembly for the demo project ─────────────────────────────
+function rebuildDemoProject(elapsed){
+  const proj = STATE.projects[DEMO_PID];
+  const base = BASE.projects[DEMO_PID];
+  // start from the pristine real base (detached cards + real approved)
+  proj.pending   = clone(base.pending);
+  proj.claimed   = clone(base.claimed);
+  proj.completed = clone(base.completed);
+  proj.approved  = clone(base.approved);
+  proj.phase_counts = clone(base.phase_counts || {});
+  // reset agent working state to idle (leader keeps leading)
+  for(const a of Object.keys(proj.agents)){
+    if(a === "claude-lead") continue;
+    proj.agents[a] = {status:"idle", task_id:null, title:null, role:base.agents[a].role};
+  }
+  // place each fabricated task by its lifecycle timestamps
+  for(const w of WAVE){
+    if(elapsed < w.appear) continue;
+    const card = {task_id:w.id, title:w.title, agent:w.agent, assigned_to:w.agent,
+                  type:"code", phase:w.phase, priority:4, _anim:(elapsed - w.appear) < 1.2};
+    if(elapsed < w.claim){
+      proj.pending.unshift(card);
+    } else if(w.done == null || elapsed < w.done){
+      proj.claimed.unshift({task_id:w.id, title:w.title, agent:w.agent, type:"code", phase:w.phase});
+      const s = proj.agents[w.agent]; if(s){ s.status="working"; s.task_id=w.id; s.title=w.title; }
+    } else if(w.approve == null || elapsed < w.approve){
+      proj.completed.unshift({task_id:w.id, title:w.title, agent:w.agent, phase:w.phase,
+                              completed_at: STATE.clockISO});
+    } else {
+      proj.approved.unshift({task_id:w.id, title:w.title, agent:w.agent, phase:w.phase,
+                             completed_at: STATE.clockISO});
+      proj.phase_counts[w.phase] = (proj.phase_counts[w.phase]||0) + 1;
+    }
+  }
+  proj.counts = {pending:proj.pending.length, claimed:proj.claimed.length,
+                 completed:proj.completed.length, failed:proj.failed.length,
+                 approved:proj.approved.length, drafts:(proj.drafts||[]).length};
+  // mirror this project's counts onto the Overview row (overview hides detached,
+  // so keep its base counts but reflect the live approved/claimed deltas)
+  const ovRow = STATE.overview.projects.find(p => p.id === DEMO_PID);
+  const ovBase = BASE.overview.projects.find(p => p.id === DEMO_PID);
+  if(ovRow){
+    const demoApproved = WAVE.filter(w => w.approve != null && elapsed >= w.approve).length;
+    const demoClaimed  = WAVE.filter(w => elapsed >= w.claim && (w.done==null||elapsed<w.done)).length;
+    const demoPending  = WAVE.filter(w => elapsed >= w.appear && elapsed < w.claim).length;
+    const demoQA       = WAVE.filter(w => w.done!=null && elapsed>=w.done && (w.approve==null||elapsed<w.approve)).length;
+    ovRow.counts = {pending: ovBase.counts.pending + demoPending,
+                    claimed: ovBase.counts.claimed + demoClaimed,
+                    completed: ovBase.counts.completed + demoQA,
+                    failed: ovBase.counts.failed,
+                    approved: ovBase.counts.approved + demoApproved};
+    ovRow.claimed = proj.claimed.filter(c=>!c.detached).slice(0,8).map(c=>({task_id:c.task_id,title:c.title,agent:c.agent}));
+  }
+}
+
+// ── clock (faux, advances with the cycle so the live pill looks real) ─────────
+function setClock(elapsed){
+  // anchor to the real capture time, advance by elapsed
+  const base = new Date(Date.parse(SNAPSHOT.updated_iso) + elapsed*1000);
+  const hh = String(base.getUTCHours()).padStart(2,"0");
+  const mm = String(base.getUTCMinutes()).padStart(2,"0");
+  const ss = String(base.getUTCSeconds()).padStart(2,"0");
+  STATE.clock = hh+":"+mm+":"+ss;
+  STATE.clockISO = base.toISOString().slice(0,19)+"Z";
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  DRIVER                                                                    ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+let cycleStart = performance.now();
+let paused = false, pausedAt = 0, pausedAccum = 0;
+let lastTabIdx = -1;
+
+function resetCycle(){
+  STATE = clone(BASE);
+  CURRENT = "overview";
+  capShownIdx = -1; lastTabIdx = -1;
+  document.getElementById("caption").classList.remove("show");
+  cycleStart = performance.now(); pausedAccum = 0;
+  moveCursorTo('.tab[data-tab="overview"]');
+  render();
+}
+
+function fmt(t){ const m=Math.floor(t/60), s=Math.floor(t%60); return m+":"+String(s).padStart(2,"0"); }
+
+function tick(){
+  if(paused){ requestAnimationFrame(tick); return; }
+  const elapsed = (performance.now() - cycleStart - pausedAccum)/1000;
+  if(elapsed >= CYCLE){ resetCycle(); requestAnimationFrame(tick); return; }
+
+  setClock(elapsed);
+
+  // scripted tab = a PURE FUNCTION of elapsed (robust to frame throttling; no setTimeout race)
+  let scriptedTab = "overview";
+  for(const ev of TABS_SEQ){ if(elapsed >= ev.t) scriptedTab = ev.id; }
+  // glide the cursor onto the NEXT tab ~0.85s before that switch fires (the visible "aim")
+  for(const ev of TABS_SEQ){ if(ev.t > elapsed && ev.t - elapsed <= 0.9){ moveCursorTo('.tab[data-tab="'+ev.id+'"]'); break; } }
+  if(scriptedTab !== CURRENT){ CURRENT = scriptedTab; moveCursorTo('.tab[data-tab="'+scriptedTab+'"]'); clickFx(); }
+  // a small cursor drift toward the demo board so it isn't frozen during the wave
+  if(elapsed > 24 && CURRENT === DEMO_PID){
+    if(Math.floor(elapsed) % 8 === 0) moveCursorTo('#c-claimed');
+    else if(Math.floor(elapsed) % 8 === 4) moveCursorTo('#c-approved');
+  }
+
+  // captions
+  let active = -1;
+  for(let i=0;i<CAPS.length;i++){ if(elapsed >= CAPS[i].t) active = i; }
+  if(active !== capShownIdx && active >= 0){ capShownIdx = active; showCaption(CAPS[active]); }
+
+  // demo project state
+  rebuildDemoProject(elapsed);
+  render();
+
+  // progress bar + clock readout
+  document.getElementById("barfill").style.width = (100*elapsed/CYCLE) + "%";
+  document.getElementById("clk").textContent = fmt(elapsed) + " / 2:00";
+
+  requestAnimationFrame(tick);
+}
+
+// controls
+document.getElementById("pause").addEventListener("click", function(){
+  paused = !paused;
+  this.textContent = paused ? "▶ Play" : "⏸ Pause";
+  if(paused){ pausedAt = performance.now(); }
+  else { pausedAccum += performance.now() - pausedAt; }
+});
+document.getElementById("replay").addEventListener("click", () => {
+  paused = false; document.getElementById("pause").textContent = "⏸ Pause";
+  resetCycle();
+});
+
+// boot
+render();
+moveCursorTo('.tab[data-tab="overview"]');
+requestAnimationFrame(tick);
+</script>
+</body></html>
