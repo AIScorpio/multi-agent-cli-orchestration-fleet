@@ -3,7 +3,7 @@
 **[▶ Live interactive demo](https://aiscorpio.github.io/multi-agent-cli-orchestration-fleet/)** —
 a self-playing, ~2-minute simulated walkthrough of the dashboard (one hub, three
 projects, a worker fleet claiming and clearing a wave of tasks). All data shown is
-synthetic; source in [`demo/`](demo/).
+synthetic; source in [`docs/`](docs/).
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) **skill** that turns Claude into
 the orchestrator and QA gate for a small fleet of heterogeneous, autonomous **external CLI
