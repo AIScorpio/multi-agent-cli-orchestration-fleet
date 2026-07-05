@@ -1,5 +1,24 @@
 # Changelog — multi-agent-cli-orchestration-fleet
 
+## 2026-07-05 — P25: `qa-pass --leader-verified` — the attended leader's semantic-QA override
+- **Why:** the framework's own contract says the leader is the FINAL semantic authority
+  (the supervisor defers semantic+science QA to the leader; the grader exists to scale QA,
+  not to overrule it) — yet a grader `ok=false` mechanically overrode an attended leader's
+  verdict and burned retry lineages on deliverables the leader had personally verified
+  (observed live 2026-07-05 during the P22 timeout fallout: one lineage reached retry 3/3).
+- **Change:** `qa-pass --leader-verified` skips ONLY the semantic grader; the mechanical
+  floor and acceptance predicates still run. `--reason` is REQUIRED with the flag (the
+  leader's rationale is the audit trail that replaces the grader verdict) and is pinned in
+  the verdict sidecar as `{"grader": {"ran": false, "leader_verified": true}}`. The flag is
+  IGNORED in fallback mode (`FLEET_FALLBACK_QA=1`) — the supervisor is not the leader and
+  must not skip semantic QA on its behalf (Fix B preserved). User-approved for the skill
+  source on 2026-07-05 (was project-local pending that decision). Also carries the P22
+  companion fix that was blocked from syncing earlier: grader qa-fail reasons kept to
+  1500 chars (a 200-char cap hid the actual failing criterion behind the preamble).
+- **Test:** `dev/tests/test_qa_pass_leader_verified.py` (4 tests: skips grader + sidecar
+  audit record; reason required; fallback ignores the flag; grader still runs without the
+  flag). Suite: 600 passed. SKILL.md orchestrator-commands table documents the flag.
+
 ## 2026-07-05 — P24: caretaker sweeps duplicated COMPLETED work (TOCTOU race) — FIXED
 - **Bug (systemic, observed live):** worker completion is a two-step transition (write
   `completed/<id>.result.json`, THEN move the spec out of `claimed/`) with no lock. The

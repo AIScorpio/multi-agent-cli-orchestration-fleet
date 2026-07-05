@@ -522,6 +522,16 @@ def cmd_qa_pass(args) -> None:
         # no-LLM caretaker's floor_decision). Defer UNLESS the task is mechanically
         # predicate-defensible (the floor already verified its acceptance_predicates above).
         _fallback = os.environ.get("FLEET_FALLBACK_QA") == "1"
+        # Leader override (attended only): the leader IS the final semantic authority — a
+        # second-opinion judge exists to scale QA, not to overrule a leader who personally
+        # verified the deliverable. Never honored in fallback mode: the supervisor is not
+        # the leader (Fix B) and must not skip semantic QA on its behalf.
+        _leader_verified = bool(getattr(args, "leader_verified", False)) and not _fallback
+        if (getattr(args, "leader_verified", False)
+                and not (getattr(args, "reason", None) or "").strip()):
+            print("ERROR: --leader-verified requires --reason — the leader's verification "
+                  "rationale is the audit trail that replaces the grader's verdict.")
+            raise SystemExit(2)
         if not failures and _fallback and _content_task and not sd.get("acceptance_predicates"):
             print(f"↩ {args.task_id} deferred to the true leader (fallback mode: content task "
                   f"with no machine-checkable acceptance — semantic+science QA is the leader's)")
@@ -535,7 +545,9 @@ def cmd_qa_pass(args) -> None:
         # Opt-in / auto-armed grader. In fallback mode SKIP the grader for content tasks — we do
         # not trust the fallback's semantic verdict; predicate-defensible content already passed
         # the floor, everything else was deferred above.
-        if not failures and not (_fallback and _content_task) and (
+        if _leader_verified and not failures:
+            grader_info = {"ran": False, "leader_verified": True}
+        if not failures and not _leader_verified and not (_fallback and _content_task) and (
                 _grounded_task
                 or ((os.environ.get("FLEET_GRADER") == "1"
                      or os.environ.get("FLEET_STRICT") == "1")
@@ -561,7 +573,9 @@ def cmd_qa_pass(args) -> None:
                                "reasons": verdict.get("reasons", []),
                                "model": verdict.get("model", gmodel)}
                 if not verdict.get("ok"):
-                    failures.append("grader: " + "; ".join(verdict.get("reasons", []))[:200])
+                    # keep the grader's full complaint (a 200-char cap hid the actual
+                    # failing criterion behind the preamble — observed live P22)
+                    failures.append("grader: " + "; ".join(verdict.get("reasons", []))[:1500])
             except Exception as e:
                 # For a CONTENT task (research/write/review) the grader IS the anti-fab
                 # gate → fail-CLOSED: a judge that can't run must NOT pass the deliverable
@@ -997,6 +1011,13 @@ def main():
     qp.add_argument("--reason", default=None,
                     help="acceptance rationale — pinned to disk in the verdict sidecar "
                          "(why the task was closed), so it survives compaction")
+    qp.add_argument("--leader-verified", action="store_true",
+                    help="ATTENDED leader override: the leader personally verified this "
+                         "deliverable (read it, checked quotes/claims against sources) — "
+                         "skip the second-opinion semantic grader. The mechanical floor "
+                         "and acceptance predicates STILL run. Recorded in the verdict "
+                         "sidecar. Ignored in fallback mode (the supervisor is not the "
+                         "leader and must not override semantic QA).")
 
     # qa-fail
     qf = sub.add_parser("qa-fail", help="Mark result as QA failed and create retry")

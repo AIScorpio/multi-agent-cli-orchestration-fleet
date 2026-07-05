@@ -343,6 +343,7 @@ The discipline, for any project (the framework can't know your DAG — you decla
 | `wait --task-id <id> [--timeout N]` | Block until a task finishes |
 | `read-result <id>` | Status + acceptance criteria + deliverable (for QA) |
 | `qa-pass <id>` | Accept a result (moves to completed/qa-passed) |
+| `qa-pass <id> --leader-verified --reason "..."` | ATTENDED leader override (P25): skip the semantic grader when the leader PERSONALLY read the deliverable and checked its claims against sources — the mechanical floor + predicates still run; `--reason` is REQUIRED (it replaces the grader verdict in the sidecar); ignored in fallback mode (the supervisor must never use it) |
 | `qa-fail <id> --reason "..."` | Reject → auto-creates a retry carrying the reason |
 | `qa-fail <id> --reason "..." --no-retry` | Reject and close TERMINALLY with no retry — for read-only review/research tasks (see QA loop note) |
 | `cancel <id>` | Cancel a pending/drafted task |
