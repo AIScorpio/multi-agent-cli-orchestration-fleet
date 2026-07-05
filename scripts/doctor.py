@@ -279,7 +279,34 @@ def _pid_alive_and_ours(pid: int, agent: str) -> bool:
     return _cmd_is_watcher(_pid_cmdline(pid), agent)
 
 
+def _finalize_if_completed(f, d, tid, why, quiet) -> bool:
+    """P24: a claim whose COMPLETED result is already on disk is NOT orphaned/stuck
+    work — the worker finished but died (or froze) in the sliver between writing
+    completed/<id>.result.json and moving the spec out of claimed/. Requeueing that
+    claim caused a FULL DUPLICATE RE-RUN that overwrote a leader-QA'd deliverable
+    (observed live 2026-07-05). Finalize instead: move the spec to completed/ so the
+    normal QA path proceeds. Returns True if finalized."""
+    result = QUEUE / "completed" / f"{tid}.result.json"
+    try:
+        if not (result.exists()
+                and json.loads(result.read_text()).get("status") == "COMPLETED"):
+            return False
+    except Exception:
+        return False                      # unreadable result → normal requeue path
+    base = f.name.split("--", 1)[1] if "--" in f.name else f.name
+    dest = QUEUE / "completed" / base
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, indent=2))
+    tmp.rename(dest)
+    f.unlink(missing_ok=True)
+    _say(f"  ✚ finalized claim {tid} (COMPLETED result already on disk; {why})",
+         quiet, action=True)
+    return True
+
+
 def _requeue_claim(f, d, tid, why, quiet):
+    if _finalize_if_completed(f, d, tid, why, quiet):
+        return
     # P6: orphan requeues use their OWN counter (orphan_count), SEPARATE from the
     # hung-child stuck_count — so a task legitimately orphaned by watcher restarts is
     # not failed prematurely on its first genuine stuck event.
@@ -465,6 +492,10 @@ def check_stuck_claims(watchers: dict, stuck_grace: int, fix=False, quiet=False)
         if not fix:
             _say(f"  ⚠ STUCK claim {tid} [{agent} watcher alive but log frozen "
                  f"{int(frozen)}s]", quiet)
+            continue
+        if _finalize_if_completed(f, d, tid, f"log frozen {int(frozen)}s", quiet):
+            _kill_task_children(tid)      # reap the lingering child; work is done
+            n += 1
             continue
         killed = _kill_task_children(tid)
         d["stuck_count"] = int(d.get("stuck_count", 0)) + 1

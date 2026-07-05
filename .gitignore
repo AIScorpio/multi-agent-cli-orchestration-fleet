@@ -4,5 +4,6 @@ __pycache__/
 .DS_Store
 
 # internal dev-history logs (contain project-specific references; kept local only)
-/CHANGELOG.md
+# CHANGELOG.md is now tracked (user decision 2026-07-05: other machines pulling the
+# skill need to see what changed and why).
 /dev/HARDENING_PLAN.md
