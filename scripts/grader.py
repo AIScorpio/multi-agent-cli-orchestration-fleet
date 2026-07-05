@@ -15,8 +15,40 @@ import re
 import subprocess
 
 
+def _grader_timeout(prompt: str) -> int:
+    """Judge-CLI timeout. FLEET_GRADER_TIMEOUT wins; else scale with prompt size — a
+    grounded content-task prompt carries whole context_files (papers can be >100KB) and
+    the old flat 180s made every judge time out → chain exhausted → fail-closed bounce
+    (observed live 2026-07-05: 6/6 qa-pass calls auto-bounced with an EMPTY verdict)."""
+    env = os.environ.get("FLEET_GRADER_TIMEOUT")
+    if env:
+        try:
+            return max(30, int(env))
+        except ValueError:
+            pass
+    return 180 if len(prompt) < 20_000 else 600
+
+
+# Cap the SOURCES block so the grounding prompt stays judgeable in one CLI call.
+_MAX_SOURCES_CHARS = 80_000
+
+
+def _cap_sources(sources: str) -> str:
+    limit = int(os.environ.get("FLEET_GRADER_MAX_SOURCES", _MAX_SOURCES_CHARS))
+    if len(sources) <= limit:
+        return sources
+    half = limit // 2
+    return (sources[:half]
+            + "\n\n[... SOURCES TRUNCATED FOR LENGTH — the middle portion is elided. "
+              "Judge groundedness on the included portions; do NOT flag a claim as "
+              "fabricated merely because its support may fall in the elided middle ...]\n\n"
+            + sources[-half:])
+
+
 def _build_prompt(deliverable: str, criteria, sources=None) -> str:
     crit = "\n".join(f"- {c}" for c in (criteria or []))
+    if sources:
+        sources = _cap_sources(sources)
     # When SOURCES are supplied (P7: the task's context_files), the grader checks
     # GROUNDEDNESS — every factual claim/number/citation in the deliverable must be
     # supported by the sources — instead of judging mere plausibility. This is the
@@ -114,7 +146,8 @@ def _run_chain(prompt: str, chain) -> tuple:
         if not cmd:
             continue
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=_grader_timeout(prompt))
         except Exception:
             continue
         if r.returncode == 0 and r.stdout.strip() and _is_verdict(r.stdout):
@@ -133,7 +166,8 @@ def _default_runner(prompt: str) -> str:
         if not cmd:
             continue
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=_grader_timeout(prompt))
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout
         except Exception:

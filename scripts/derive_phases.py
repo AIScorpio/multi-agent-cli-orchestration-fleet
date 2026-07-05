@@ -68,7 +68,26 @@ def _compare(count, op, value):
 
 
 def _eval_predicate(pred, repo_root, proc_alive):
+    # A predicate must be a dict. A prose string (a human-readable done_when written by
+    # a leader unaware of the schema) previously CRASHED the whole deriver loop —
+    # tolerate it: no machine judgment possible → not done, not active (observed live
+    # 2026-07-05: the deriver crash-looped and the kanban pipeline never lit up).
+    if not isinstance(pred, dict):
+        return False, 0, {}
     ptype = pred.get('type')
+    if ptype == 'glob_count':
+        # {"type": "glob_count", "pattern": "analysis/phase1/*.md", "op": ">=", "value": 6}
+        # Counts non-empty files matching the glob (relative to repo_root). This is the
+        # natural predicate for "phase done when its N deliverable files exist".
+        import glob as _glob
+        pattern = os.path.join(repo_root, pred.get('pattern', ''))
+        try:
+            files = [p for p in _glob.glob(pattern)
+                     if os.path.isfile(p) and os.path.getsize(p) > 0]
+        except Exception:
+            return False, 0, {}
+        count = len(files)
+        return _compare(count, pred.get('op', '>='), pred.get('value', 0)), count, {}
     if ptype == 'count':
         source = pred.get('source', '')
         fpath = os.path.join(repo_root, source)
@@ -141,10 +160,11 @@ def derive_phases(meta, repo_root, proc_alive=None):
             phase['status'] = 'done'
         elif active_result:
             phase['status'] = 'active'
-        elif done_when and done_when.get('type') == 'count' and done_count > 0:
+        elif (isinstance(done_when, dict)
+              and done_when.get('type') in ('count', 'glob_count') and done_count > 0):
             phase['status'] = 'active'
         gt = phase.get('gate_template')
-        if gt and done_when and done_when.get('type') == 'count':
+        if gt and isinstance(done_when, dict) and done_when.get('type') in ('count', 'glob_count'):
             fmt_vars = {'count': done_count, 'value': done_when.get('value', 0)}
             fmt_vars.update(done_per_key)
             try:

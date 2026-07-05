@@ -199,13 +199,14 @@ def _validate_phase(phase: str) -> None:
         ids = [p.get("id") for p in json.loads(pf.read_text()).get("phases", []) if p.get("id")]
     except Exception:
         return
-    nums = [i[1:] if i.startswith("P") else i for i in ids]
-    if not ids or str(phase) in ids or str(phase) in nums:
+    sids = [str(i) for i in ids]  # phases.json ids may be ints (set_phases accepts them)
+    nums = [s[1:] if s.startswith("P") else s for s in sids]
+    if not ids or str(phase) in sids or str(phase) in nums:
         return
     print("=" * 64)
     print(f"ERROR: --phase '{phase}' matches NO pipeline phase in phases.json — REJECTED.")
     print("  Every task MUST map to a pipeline phase, else the kanban desyncs.")
-    print(f"  Valid phase ids: {', '.join(ids)}")
+    print(f"  Valid phase ids: {', '.join(sids)}")
     print("  Fix: use an existing phase, OR define a new phase in phases.json first, then re-create.")
     print("=" * 64)
     raise SystemExit(2)
