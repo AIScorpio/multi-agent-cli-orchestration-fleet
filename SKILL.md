@@ -347,6 +347,7 @@ The discipline, for any project (the framework can't know your DAG — you decla
 | `qa-fail <id> --reason "..."` | Reject → auto-creates a retry carrying the reason |
 | `qa-fail <id> --reason "..." --no-retry` | Reject and close TERMINALLY with no retry — for read-only review/research tasks (see QA loop note) |
 | `cancel <id>` | Cancel a pending/drafted task |
+| `requeue <id> [--reason "..."]` | Requeue a FAILED task for a fresh run (P26): spec → pending (claim/failure state cleared, provenance stamped), failed result sidecar → failed/archive/ so the board stops showing a resolved failure. NEVER hand-`mv` a failed spec — that leaves the sidecar behind. Refuses completed tasks (requeueing finished work duplicates it; use `qa-fail` for a retry) |
 
 Capacity (global): `python3 .fleet/capacity.py status|probe|gate <a>|bump <a>|pick <a>`.
 Health: `python3 .fleet/doctor.py [--fix]` (watchers, orphaned claims, drafts, capacity, registry).

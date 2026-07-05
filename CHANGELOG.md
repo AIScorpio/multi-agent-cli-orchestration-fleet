@@ -1,4 +1,20 @@
-# Changelog — multi-agent-cli-orchestration-fleet skill
+# Changelog — multi-agent-cli-orchestration-fleet
+
+## 2026-07-05 — P26: `orchestrator requeue <id>` — formal failed→pending path
+- **Why (observed live):** the framework had no command to requeue a FAILED task, so the
+  leader used a bare `mv failed/<id>.json pending/` — which left the `.result.json`
+  sidecar behind, and the kanban Failed column showed a long-resolved failure until the
+  leader noticed and archived it by hand.
+- **Change:** `requeue <id> [--reason "..."]` handles BOTH files: the spec moves to
+  pending/ with transient state cleared (`claimed_by_pid`, `fail_reason`) and provenance
+  stamped (`requeued_at`, optional `requeue_reason`); the failed result sidecar is
+  ARCHIVED to `failed/archive/` (audit trail kept, live board cleared). Ledger event
+  `requeue`. FAILED tasks only: a completed task is REFUSED with a pointer to `qa-fail`
+  (requeueing finished work is the P24 duplicate-run failure mode); other states get a
+  state-specific hint.
+- **Test:** `dev/tests/test_cmd_requeue.py` (4 tests: spec+sidecar handling; no-sidecar
+  requeue; completed refused; unknown id errors). Suite: 604 passed. SKILL.md
+  orchestrator-commands table documents the command. skill
 
 Auditable record of skill-layer evolutions (harness changes only, never task/content
 changes). Forked 2026-06-11 from `multi-agent-cli-orchestration` (the legacy

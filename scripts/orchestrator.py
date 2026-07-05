@@ -791,6 +791,55 @@ def cmd_wait(args) -> None:
     sys.exit(2)
 
 
+def cmd_requeue(args) -> None:
+    """Requeue a FAILED task for a fresh run (P26) — the formal replacement for the
+    leader's bare `mv failed/<id>.json pending/`, which left the `.result.json` sidecar
+    behind so the kanban Failed column showed a resolved failure forever (observed live
+    2026-07-05). Handles BOTH files: the spec moves to pending/ (transient claim state
+    cleared, provenance stamped) and the failed result sidecar is ARCHIVED to
+    failed/archive/ — the record survives for the audit trail, off the live board.
+    FAILED tasks only: a completed task must never be requeued (that duplicates finished
+    work — the exact P24 failure mode); use qa-fail for a retry instead."""
+    spec = _find_spec("failed", args.task_id)
+    if not spec:
+        where = _find_spec_any(args.task_id)
+        if where:
+            state = where[0]
+            hint = {"pending": "already pending — nothing to do",
+                    "drafts": "still a draft — promote it instead",
+                    "claimed": "in progress — let it run (or let doctor handle a hang)",
+                    "completed": "COMPLETED — requeueing finished work duplicates it "
+                                 "(P24); use qa-fail to bounce it for a retry"}.get(state, state)
+            print(f"✗ {args.task_id} is in {state}/: {hint}")
+        else:
+            print(f"✗ {args.task_id} not found in any queue state")
+        sys.exit(1)
+    d = json.loads(spec.read_text())
+    d.pop("claimed_by_pid", None)
+    d.pop("fail_reason", None)
+    d["requeued_at"] = _now()
+    if getattr(args, "reason", None):
+        d["requeue_reason"] = args.reason
+    base = spec.name.split("--", 1)[1] if "--" in spec.name else spec.name
+    _atomic_write(QUEUE / "pending" / base, json.dumps(d, indent=2))
+    spec.unlink()
+    sidecar = QUEUE / "failed" / f"{args.task_id}.result.json"
+    archived = ""
+    if sidecar.exists():
+        arch = QUEUE / "failed" / "archive"
+        arch.mkdir(exist_ok=True)
+        sidecar.rename(arch / sidecar.name)
+        archived = " · failed result archived → failed/archive/"
+    print(f"✓ Requeued {args.task_id} → pending{archived}")
+    _journal(f"REQUEUE  {args.task_id}"
+             + (f"  reason: {args.reason}" if getattr(args, "reason", None) else ""))
+    try:
+        ledger.append(MA, "requeue", task_id=args.task_id,
+                      reason=(getattr(args, "reason", None) or ""))
+    except Exception:
+        pass
+
+
 def cmd_cancel(args) -> None:
     """Cancel a pending or drafted task."""
     p = _find_spec("pending", args.task_id) or _find_spec("drafts", args.task_id)
@@ -1038,6 +1087,16 @@ def main():
     cn = sub.add_parser("cancel", help="Cancel a pending/drafted task")
     cn.add_argument("task_id")
 
+    # requeue — formal failed→pending path (P26); archives the failed result sidecar
+    rq = sub.add_parser("requeue",
+                        help="Requeue a FAILED task for a fresh run (spec → pending; "
+                             "failed result sidecar → failed/archive/). FAILED only — "
+                             "completed work is never requeued (use qa-fail for a retry).")
+    rq.add_argument("task_id")
+    rq.add_argument("--reason", default=None,
+                    help="why it is being requeued (e.g. 'transient CLI failure') — "
+                         "stamped on the spec and in the ledger")
+
     # approve-card / reject-card — leader QA verb for DETACHED board cards (no queue spec)
     ac = sub.add_parser("approve-card",
                         help="QA-approve a detached board card → APPROVED column")
@@ -1079,6 +1138,7 @@ def main():
         "qa-fail":     cmd_qa_fail,
         "wait":        cmd_wait,
         "cancel":      cmd_cancel,
+        "requeue":     cmd_requeue,
         "approve-card": cmd_approve_card,
         "reject-card":  cmd_reject_card,
         "board-card":   cmd_board_card,
