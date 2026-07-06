@@ -840,6 +840,69 @@ def cmd_requeue(args) -> None:
         pass
 
 
+def cmd_override_fail(args) -> None:
+    """Overturn a FAILED task as leader-verified COMPLETED (P27) — the ACCEPT path that
+    P26's requeue deliberately is not. For MECHANICAL-FLOOR FALSE-FAILS: the auto-QA
+    floor killed a deliverable the attended leader has personally verified as good
+    (observed live 2026-07-06: defective leader-authored predicates — a BSD `grep -L`
+    exit-code inversion plus a worktree without the repo venv — QA-failed a correct demo
+    4x; the leader then had to hand-move both queue files, the same bare-mv failure mode
+    P26 fixed for the requeue path). Requeueing such a task would re-run good work into
+    the same defective floor and burn a worker cycle; this command instead moves the
+    spec AND the result sidecar to completed/archive/ with the leader's rationale
+    pinned, preserving the original auto-verdict intact for the audit trail.
+    --reason is REQUIRED: it replaces the mechanical verdict, so it must state what the
+    leader actually verified (commands run, assertions checked) — not just 'looks fine'.
+    FAILED tasks only."""
+    if not getattr(args, "reason", None):
+        print("✗ --reason is required: state what the leader verified "
+              "(it replaces the mechanical verdict in the audit trail)")
+        sys.exit(1)
+    spec = _find_spec("failed", args.task_id)
+    if not spec:
+        where = _find_spec_any(args.task_id)
+        if where:
+            state = where[0]
+            hint = {"pending": "not failed — nothing to override",
+                    "drafts": "still a draft — promote it instead",
+                    "claimed": "in progress — let it run (or let doctor handle a hang)",
+                    "completed": "already completed — nothing to override"}.get(state, state)
+            print(f"✗ {args.task_id} is in {state}/: {hint}")
+        else:
+            print(f"✗ {args.task_id} not found in any queue state")
+        sys.exit(1)
+    arch = QUEUE / "completed" / "archive"
+    arch.mkdir(parents=True, exist_ok=True)
+    d = json.loads(spec.read_text())
+    d["override_fail_at"] = _now()
+    d["override_fail_reason"] = args.reason
+    base = spec.name.split("--", 1)[1] if "--" in spec.name else spec.name
+    _atomic_write(arch / base, json.dumps(d, indent=2))
+    spec.unlink()
+    sidecar = QUEUE / "failed" / f"{args.task_id}.result.json"
+    if sidecar.exists():
+        r = json.loads(sidecar.read_text())
+    else:
+        r = {"task_id": args.task_id,
+             "note": "no failed result sidecar existed at override time"}
+    # Preserve the machine's verdict verbatim; layer the leader's on top.
+    if "status" in r:
+        r["original_auto_status"] = r["status"]
+    r["status"] = "COMPLETED"
+    r["qa_status"] = f"leader-approved (false-fail override): {args.reason}"
+    r["overridden_at"] = _now()
+    _atomic_write(arch / f"{args.task_id}.result.json", json.dumps(r, indent=2))
+    if sidecar.exists():
+        sidecar.unlink()
+    print(f"✓ Override-fail {args.task_id} → completed/archive/ "
+          f"(leader-verified; original auto-verdict preserved)")
+    _journal(f"OVERRIDE-FAIL  {args.task_id}  reason: {args.reason}")
+    try:
+        ledger.append(MA, "override-fail", task_id=args.task_id, reason=args.reason)
+    except Exception:
+        pass
+
+
 def cmd_cancel(args) -> None:
     """Cancel a pending or drafted task."""
     p = _find_spec("pending", args.task_id) or _find_spec("drafts", args.task_id)
@@ -1097,6 +1160,17 @@ def main():
                     help="why it is being requeued (e.g. 'transient CLI failure') — "
                          "stamped on the spec and in the ledger")
 
+    # override-fail — leader-verified accept path for mechanical false-fails (P27)
+    ov = sub.add_parser("override-fail",
+                        help="Overturn a FAILED task as leader-verified COMPLETED (spec + "
+                             "result sidecar → completed/archive/; original auto-verdict "
+                             "preserved). For mechanical-floor false-fails the leader has "
+                             "personally verified — use requeue for a fresh run instead.")
+    ov.add_argument("task_id")
+    ov.add_argument("--reason", required=True,
+                    help="what the leader actually verified (commands run, assertions "
+                         "checked) — replaces the mechanical verdict in the audit trail")
+
     # approve-card / reject-card — leader QA verb for DETACHED board cards (no queue spec)
     ac = sub.add_parser("approve-card",
                         help="QA-approve a detached board card → APPROVED column")
@@ -1139,6 +1213,7 @@ def main():
         "wait":        cmd_wait,
         "cancel":      cmd_cancel,
         "requeue":     cmd_requeue,
+        "override-fail": cmd_override_fail,
         "approve-card": cmd_approve_card,
         "reject-card":  cmd_reject_card,
         "board-card":   cmd_board_card,

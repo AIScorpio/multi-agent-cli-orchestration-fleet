@@ -1,5 +1,28 @@
 # Changelog — multi-agent-cli-orchestration-fleet
 
+## 2026-07-07 — P27: `orchestrator override-fail <id> --reason` — leader-verified accept path for mechanical false-fails
+- **Why (observed live 2026-07-06):** the auto-QA mechanical floor failed a CORRECT
+  deliverable 4x because the leader-authored predicates were themselves defective
+  (a BSD `grep -L` exit-code inversion — the predicate could only pass if the file
+  CONTAINED the forbidden string — plus a predicate invoking `.venv/bin/python` inside
+  an isolated worktree that has no venv). P26's `requeue` is the re-run path and would
+  have driven the good work back into the same defective floor, burning a worker cycle;
+  P25's `qa-pass --leader-verified` deliberately keeps the mechanical floor running, so
+  it could not rescue it either. The leader had to hand-move both queue files — the
+  exact bare-mv failure mode P26 had just eliminated for the requeue path.
+- **Change:** `override-fail <id> --reason "..."` (FAILED tasks only) moves the spec AND
+  the result sidecar to `completed/archive/`; the sidecar keeps the machine's verdict
+  verbatim (`original_auto_status` + the error text) and layers the leader's rationale
+  on top (`qa_status: leader-approved (false-fail override): <reason>`); the spec is
+  stamped (`override_fail_at`, `override_fail_reason`). `--reason` is REQUIRED (enforced
+  at the parser AND in the command body) — it replaces the mechanical verdict in the
+  audit trail, so it must state what was actually verified. Missing sidecars are
+  synthesized with a note. Ledger event `override-fail`; journal line. Non-failed states
+  get state-specific hints (completed: nothing to override; use requeue for a fresh run).
+- **Test:** `dev/tests/test_cmd_override_fail.py` (5 tests: both-files move + verdict
+  layering; no-sidecar synthesis; reason required; completed refused; unknown id).
+  Suite: 609 passed. SKILL.md orchestrator-commands table documents the command. skill
+
 ## 2026-07-05 — P26: `orchestrator requeue <id>` — formal failed→pending path
 - **Why (observed live):** the framework had no command to requeue a FAILED task, so the
   leader used a bare `mv failed/<id>.json pending/` — which left the `.result.json`
