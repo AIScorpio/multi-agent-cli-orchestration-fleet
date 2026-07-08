@@ -287,6 +287,14 @@ python3 .fleet/orchestrator.py create-task \
   engineering discipline into every code/test prompt (kimi and opencode were
   both observed baking magic values into deliverables), but the criterion makes
   it CHECKABLE at QA — prompt injection guides, acceptance criteria enforce.
+- **For script tasks, demand cwd-independence in the criteria** — every default
+  path must be anchored to the repo root (derive it from the script's own
+  location: `Path(__file__).resolve().parents[N]` / `$(dirname "${BASH_SOURCE[0]}")`),
+  never written cwd-relative. Observed live (2026-07-09, project 06): a QA-passed
+  bench script defaulted to `reference/.../train.jsonl`, so all three of its modes
+  crashed with FileNotFoundError when the leader ran it from another cwd — three
+  reruns to find one root cause. `bash -n`/`py_compile` predicates can't catch
+  this; only the criterion (and the leader smoke-running from a foreign cwd) does.
 - **`--hold` enqueues a DRAFT** (`queue/drafts/`, invisible to watchers) — promoted
   explicitly (`promote <id>`) or mechanically by the caretaker when a pool's live
   backlog drops below low-water. **Pre-author the next wave as drafts every healthy
