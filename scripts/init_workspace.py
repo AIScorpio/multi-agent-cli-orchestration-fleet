@@ -35,6 +35,7 @@ RUNTIME_SCRIPTS = [
     "ledger.py", "fleet_health.py", "health_loop.sh",
     "qa_floor.py", "predicates.py", "grader.py", "profiles.py", "worktree.py",
     "jobs.py", "phases.py", "leader_heartbeat.sh", "autonomous.sh", "phase_link_check.py",
+    "progress_tick.py",
     "fleet_progress.py", "board_cards.py",
 ]
 # install_supervisord.sh + fleet_supervisord.sh are GLOBAL (run from the skill,

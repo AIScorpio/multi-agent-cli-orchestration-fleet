@@ -254,6 +254,20 @@ A long job is NOT a queue task (it would block a worker slot and hit the CLI tim
 prefer queue (shorter, fully gated) and only detach when a long-run criterion above is genuinely met.
 **Whichever track: semantic/science QA is the leader's non-delegable job — neither track auto-passes it.**
 
+**Detached-card observability is MANDATORY, not decorative** (incident 2026-07-09: a leader ran
+S-phase jobs through plain background shells with hand-authored cards — the board showed no drawer
+log and no % for the entire phase, and the only stdout of three finished benchmarks died with a
+reboot because it lived under /tmp). Every detached/leader-run background job MUST wire, at launch:
+1. **Log inside the project** — `--log <project>/experiments/...` (or tee there). NEVER /tmp: the
+   hub's containment check rejects paths outside the project root AND macOS wipes /tmp on reboot.
+2. **The card's `log` field** pointing at that path (project-relative), so the drawer resolves it.
+3. **Progress ticks** — `status/progress/<card-id>.json` `{stage, done, total, pct}`; runners under
+   `detach_run.py` get `FLEET_CARD_ID` exported for this, and any script (leader one-offs included)
+   can tick with `python3 .fleet/progress_tick.py <card-id> --stage "..." --done K --total N
+   [--log <path>] [--status running|done]` — one line per unit of work, no excuse to skip it.
+A card without a log field or progress file is a review-blocking defect at leader QA, same class
+as a missing acceptance predicate.
+
 ```bash
 python3 .fleet/orchestrator.py create-task \
   --phase <id> --type research|code|test|write|review \
