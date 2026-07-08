@@ -255,6 +255,29 @@ def derive_phase_statuses(phases, claimed, project_root):
     return phases
 
 
+APPROVED_CARD_STATUSES = ("approved", "qa-passed")
+
+
+def _approved_board_cards(fleet_dir: Path) -> list:
+    """GOLDEN SOURCE for 'leader-approved detached board cards'.
+
+    Used by BOTH collect() (the per-project APPROVED column) and collect_overview()
+    (the tab-strip / Overview counts) so the two Approved numbers can never diverge.
+    Projects without board_cards.json get [] (no-op)."""
+    bc = _load(fleet_dir / "status" / "board_cards.json")
+    out = []
+    for card in (bc.get("cards", []) if isinstance(bc, dict) else []):
+        if card.get("status") not in APPROVED_CARD_STATUSES:
+            continue
+        cid = card.get("id", "")
+        out.append({"task_id": cid, "title": card.get("title", cid), "agent": "detached",
+                    "phase": str(card.get("phase", bc.get("phase", ""))),
+                    "completed_at": card.get("at", ""), "detached": True,
+                    "log": card.get("log"), "has_log": bool(card.get("log")),
+                    "verdict_reason": card.get("verdict_reason", "")})
+    return out
+
+
 def collect(root: Path) -> dict:
     """Live board state for ONE project root (its .fleet/)."""
     ma = root / ".fleet"
@@ -323,10 +346,11 @@ def collect(root: Path) -> dict:
     # the queue dirs) never see them and can't interfere. status: pending|running|done|failed.
     bc = _load(ma / "status" / "board_cards.json")
     cp = _load(ma / "status" / "cell_progress.json")   # within-cell progress for the RUNNING cell
-    # Detached cards the leader has QA-approved (status "approved"/"qa-passed") are collected here and
-    # merged into the APPROVED column below — so detached work has a real done→QA→approved lifecycle
-    # instead of being stuck forever at "done · pending QA" (the queue-task approved path can't see it).
-    board_approved = []
+    # Detached cards the leader has QA-approved are merged into the APPROVED column below — so
+    # detached work has a real done→QA→approved lifecycle instead of being stuck forever at
+    # "done · pending QA". Collected via _approved_board_cards() — the GOLDEN SOURCE shared with
+    # collect_overview() — so the board column and the Overview/tab counts always agree.
+    board_approved = _approved_board_cards(ma)
     for card in (bc.get("cards", []) if isinstance(bc, dict) else []):
         cid = card.get("id", "")
         title = card.get("title", cid)
@@ -368,11 +392,8 @@ def collect(root: Path) -> dict:
             failed.append({"task_id": cid, "title": title, "agent": "detached", "phase": phase,
                            "completed_at": card.get("at", ""), "detached": True,
                            "log": card.get("log"), "has_log": _has_log})
-        elif st in ("approved", "qa-passed"):
-            board_approved.append({"task_id": cid, "title": title, "agent": "detached", "phase": phase,
-                                   "completed_at": card.get("at", ""), "detached": True,
-                                   "log": card.get("log"), "has_log": _has_log,
-                                   "verdict_reason": card.get("verdict_reason", "")})
+        elif st in APPROVED_CARD_STATUSES:
+            pass  # already collected via _approved_board_cards(ma) above (golden source)
         else:
             pending.append({"task_id": cid, "title": title, "assigned_to": "detached",
                             "priority": 9, "type": "detached", "phase": phase, "detached": True})
@@ -491,11 +512,14 @@ def collect_overview() -> dict:
             if d:
                 failed_cards.append({"task_id": d.get("task_id", ""),
                                      "title": d.get("title", "")})
-        # Approved counted from SPECS (never gc'd), consistent with the per-project board.
+        # Approved = qa-passed task SPECS (never gc'd) + leader-approved DETACHED board cards,
+        # the latter via the SAME golden-source helper as the per-project board column
+        # (_approved_board_cards) — the Overview/tab count and the board must always agree.
         _qap = queue / "completed" / "qa-passed"
         approved_n = sum(1 for f in _qap.glob("*.json")
                          if not f.name.startswith(".")
                          and not f.name.endswith((".result.json", ".verdict.json"))) if _qap.is_dir() else 0
+        approved_n += len(_approved_board_cards(root / ".fleet"))
         rows.append({
             "id": p["id"], "name": p.get("name", p["id"]), "root": p["root"],
             "missing": False,
