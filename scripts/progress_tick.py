@@ -41,6 +41,10 @@ def main() -> int:
     ap.add_argument("--status", default=None,
                     choices=["pending", "running", "done", "failed"])
     ap.add_argument("--title", default=None)
+    ap.add_argument("--phase", default=None,
+                    help="pipeline phase id for the card — REQUIRED when this call CREATES the "
+                         "card (phase_link_check treats a phase-less card as an orphan and the "
+                         "health pinger alarms every tick; incident 2026-07-09)")
     ns = ap.parse_args()
 
     prog = {}
@@ -56,12 +60,26 @@ def main() -> int:
     pdir.mkdir(parents=True, exist_ok=True)
     (pdir / f"{ns.card_id}.json").write_text(json.dumps(prog) + "\n")
 
-    if ns.log or ns.status or ns.title:
+    if ns.log or ns.status or ns.title or ns.phase:
         upd = {"id": ns.card_id}
         if ns.status:
             upd["status"] = ns.status
         if ns.title:
             upd["title"] = ns.title
+        if ns.phase:
+            upd["phase"] = str(ns.phase)
+        else:
+            # Creating a NEW card without a phase makes it an orphan_phase alarm on every
+            # health tick — refuse at the source instead of letting the board go red.
+            try:
+                import json as _json
+                _bc = _json.loads((FLEET / "status" / "board_cards.json").read_text())
+                _known = {c.get("id") for c in _bc.get("cards", [])}
+            except Exception:
+                _known = set()
+            if ns.card_id not in _known:
+                sys.exit(f"refused: card '{ns.card_id}' does not exist yet — pass --phase "
+                         "on first creation (phase-less cards trip orphan_phase every tick)")
         if ns.log:
             lp = Path(ns.log)
             lp = (ROOT / lp) if not lp.is_absolute() else lp
