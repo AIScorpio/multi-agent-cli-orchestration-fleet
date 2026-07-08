@@ -109,6 +109,31 @@ def _job_env(base: dict, card_id, fleet_dir: str) -> dict:
     return env
 
 
+def _wire_card_log(card_id, log, cwd) -> str:
+    """MECHANICAL observability guarantee (incident 2026-07-09): a --card launch must leave the
+    board card openable in the kanban drawer. Validates the log path is INSIDE the project root
+    (the hub's containment check rejects anything else, and /tmp is wiped on reboot — both killed
+    observability for a whole phase in project 06), then merge-writes the card's `log` field +
+    status=running. Returns the project-relative log path. Raises SystemExit on an outside path."""
+    root = Path(cwd or os.getcwd()).resolve()
+    lp = Path(log)
+    lp = (root / lp) if not lp.is_absolute() else lp
+    try:
+        rel = str(lp.resolve().relative_to(root))
+    except ValueError:
+        raise SystemExit(
+            f"[detach_run] refused: --log {log} lies OUTSIDE the project root {root}. "
+            "The kanban drawer cannot show it (containment check) and /tmp paths die on "
+            "reboot. Put the log under the project (e.g. experiments/logs/).")
+    try:
+        sys.path.insert(0, str(root / ".fleet"))
+        import board_cards
+        board_cards.merge_write(root, [{"id": str(card_id), "status": "running", "log": rel}])
+    except Exception as exc:                       # board write is best-effort; the refusal above is not
+        print(f"[detach_run] warn: could not wire card log ({exc})")
+    return rel
+
+
 def _init_progress_stub(card_id, cwd):  # pragma: no cover (best-effort, fork-adjacent)
     """Stamp a started_at-bearing progress stub BEFORE exec so the card appears immediately and
     ETA has a start time. detach_run CANNOT finalize on exit (execvp replaces this process), so
@@ -170,6 +195,7 @@ def main(argv=None):
     job_cwd = ns.cwd or os.getcwd()
     os.environ.update(_job_env(os.environ, ns.card, str(Path(job_cwd) / ".fleet")))
     if ns.card:
+        _wire_card_log(ns.card, ns.log, job_cwd)   # refuses out-of-root logs (observability gate)
         _init_progress_stub(ns.card, job_cwd)
     _daemonize_and_exec(ns.log, ns.cwd, cmd)
 

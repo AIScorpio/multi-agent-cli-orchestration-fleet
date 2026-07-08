@@ -134,6 +134,25 @@ def check_health(fleet_home=None, projects=None, free_bytes=None) -> list:
         except Exception:
             pass
 
+        # Observability watchdog (incident 2026-07-09): a RUNNING detached card whose log field is
+        # missing (or points at a non-existent file) is a blind job — the drawer shows nothing and
+        # the stdout may be unrecoverable (e.g. living under /tmp when the machine reboots). This
+        # catches every launch path that bypassed detach_run's wiring gate (plain background
+        # shells, hand-authored cards). Alert only; the leader decides how to re-wire.
+        try:
+            bc2 = json.loads((root / ".fleet" / "status" / "board_cards.json").read_text())
+            for c in bc2.get("cards", []):
+                if c.get("status") != "running":
+                    continue
+                lg = c.get("log")
+                lp = (root / lg) if lg and not str(lg).startswith("/") else (Path(lg) if lg else None)
+                if not lg or lp is None or not lp.is_file():
+                    alerts.append({"type": "card_unobservable",
+                                   "detail": f"{root}: running card '{c.get('id')}' has "
+                                             f"{'no log field' if not lg else 'a dead log path'}"})
+        except Exception:
+            pass
+
         # Phase 5: manifest scaffolded but the (mission-aware) leader hasn't defined the
         # pipeline, yet the project already has phase-tagged tasks → nudge the leader to fill
         # phases.json. Fires ONLY for awaiting_definition + phase-tagged work, so a flat
