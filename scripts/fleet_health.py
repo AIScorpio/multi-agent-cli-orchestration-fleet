@@ -43,6 +43,11 @@ QA_BACKLOG_MAX = int(os.environ.get("FLEET_QA_BACKLOG_MAX", 10))
 # Running detached card with no progress tick for this long → card_no_progress alert
 # (the runner is missing its fleet_progress/progress_tick call; % stays blank forever).
 PROGRESS_STALE_S = int(os.environ.get("FLEET_PROGRESS_STALE_S", 1800))
+# Completed task awaiting QA for this long with NO qa_notify.sh armed for the project →
+# qa_entry_stalled alert. qa_notify is session-bound (Monitor) and MUST be re-armed by the
+# leader every session; incident 2026-07-09: 06's notifier was never armed, so finished
+# tasks sat at done·pending-QA until the human asked why. Forgetting to arm now alarms.
+QA_ENTRY_STALE_S = int(os.environ.get("FLEET_QA_ENTRY_STALE_S", 600))
 
 
 def _pid_alive(pid) -> bool:
@@ -169,6 +174,29 @@ def check_health(fleet_home=None, projects=None, free_bytes=None) -> list:
                                    "detail": f"{root}: running card '{c.get('id')}' has emitted "
                                              f"no progress tick in {PROGRESS_STALE_S//60} min "
                                              f"(runner missing fleet_progress/progress_tick call)"})
+        except Exception:
+            pass
+
+        # QA-ENTRY watchdog (incident 2026-07-09): auto-ENTRY into QA is the qa_notify.sh
+        # notifier, which is session-bound and must be re-armed by the leader — when it is NOT
+        # running and completed results have been waiting past QA_ENTRY_STALE_S, nothing will
+        # initiate QA until a human notices. Distinct from auto-PASS (a policy gate): this
+        # alarms on "nobody was even told".
+        try:
+            comp2 = q / "completed"
+            waiting = [f for f in comp2.glob("*.result.json")
+                       if not (comp2 / "qa-passed" / f.name).exists()] if comp2.is_dir() else []
+            if waiting:
+                oldest = min(f.stat().st_mtime for f in waiting)
+                if time.time() - oldest > QA_ENTRY_STALE_S:
+                    import subprocess as _sp
+                    probe = _sp.run(["pgrep", "-f", f"qa_notify.sh {root}"],
+                                    capture_output=True, text=True)
+                    if probe.returncode != 0:
+                        alerts.append({"type": "qa_entry_stalled",
+                                       "detail": f"{root}: {len(waiting)} completed result(s) "
+                                                 f"awaiting QA >{QA_ENTRY_STALE_S//60}min and NO "
+                                                 f"qa_notify.sh armed — re-arm the notifier"})
         except Exception:
             pass
 
