@@ -82,8 +82,41 @@ class TestUnobservableAlert:
     def test_wired_running_card_is_quiet(self, tmp_path):
         root = _mk_project(tmp_path)
         (root / "experiments" / "logs" / "live.log").write_text("x")
+        pdir = root / ".fleet" / "status" / "progress"
+        pdir.mkdir(parents=True)
+        (pdir / "ok.json").write_text('{"stage":"x","done":1,"total":2,"pct":50}')
         (root / ".fleet" / "status" / "board_cards.json").write_text(json.dumps(
             {"cards": [{"id": "ok", "status": "running", "log": "experiments/logs/live.log"},
                        {"id": "done-no-log", "status": "done"},
                        {"id": "pending-no-log", "status": "pending"}]}))
         assert self._health(root) == []
+
+    def _no_progress_alerts(self, root):
+        return [a for a in fleet_health.check_health(root / "nonexistent-fleet-home",
+                                                     [{"root": str(root)}])
+                if a["type"] == "card_no_progress"]
+
+    def test_running_card_without_tick_alerts(self, tmp_path):
+        root = _mk_project(tmp_path)
+        (root / "experiments" / "logs" / "live.log").write_text("x")
+        (root / ".fleet" / "status" / "board_cards.json").write_text(json.dumps(
+            {"cards": [{"id": "silent", "status": "running",
+                        "log": "experiments/logs/live.log"}]}))
+        alerts = self._no_progress_alerts(root)
+        assert len(alerts) == 1 and "no progress tick" in alerts[0]["detail"]
+
+    def test_stale_tick_alerts_fresh_tick_quiet(self, tmp_path):
+        import os as _os
+        import time as _time
+        root = _mk_project(tmp_path)
+        (root / "experiments" / "logs" / "live.log").write_text("x")
+        pdir = root / ".fleet" / "status" / "progress"
+        pdir.mkdir(parents=True)
+        pf = pdir / "j.json"
+        pf.write_text('{"stage":"x"}')
+        (root / ".fleet" / "status" / "board_cards.json").write_text(json.dumps(
+            {"cards": [{"id": "j", "status": "running", "log": "experiments/logs/live.log"}]}))
+        assert self._no_progress_alerts(root) == []          # fresh tick → quiet
+        old = _time.time() - (fleet_health.PROGRESS_STALE_S + 60)
+        _os.utime(pf, (old, old))
+        assert len(self._no_progress_alerts(root)) == 1      # stale tick → alert

@@ -40,6 +40,9 @@ SINGLETONS = ("hub", "capacity_loop", "health_loop")   # P17: the alert pinger i
 # A pile of completed-but-unQA'd results means the supervisor loop isn't draining QA
 # (the default-install stall the 4th eval named). Alert above this many.
 QA_BACKLOG_MAX = int(os.environ.get("FLEET_QA_BACKLOG_MAX", 10))
+# Running detached card with no progress tick for this long → card_no_progress alert
+# (the runner is missing its fleet_progress/progress_tick call; % stays blank forever).
+PROGRESS_STALE_S = int(os.environ.get("FLEET_PROGRESS_STALE_S", 1800))
 
 
 def _pid_alive(pid) -> bool:
@@ -150,6 +153,22 @@ def check_health(fleet_home=None, projects=None, free_bytes=None) -> list:
                     alerts.append({"type": "card_unobservable",
                                    "detail": f"{root}: running card '{c.get('id')}' has "
                                              f"{'no log field' if not lg else 'a dead log path'}"})
+                    continue
+                # % watchdog: a wired log but NO progress tick for PROGRESS_STALE_S means the
+                # runner never calls fleet_progress/progress_tick — the % column stays blank
+                # forever and nobody notices until the leader asks. Alert so the tick call gets
+                # added to the runner (or the spec that authored it).
+                pf = root / ".fleet" / "status" / "progress" / f"{c.get('id')}.json"
+                try:
+                    stale = (not pf.is_file()) or (
+                        __import__("time").time() - pf.stat().st_mtime > PROGRESS_STALE_S)
+                except Exception:
+                    stale = True
+                if stale:
+                    alerts.append({"type": "card_no_progress",
+                                   "detail": f"{root}: running card '{c.get('id')}' has emitted "
+                                             f"no progress tick in {PROGRESS_STALE_S//60} min "
+                                             f"(runner missing fleet_progress/progress_tick call)"})
         except Exception:
             pass
 
