@@ -48,6 +48,12 @@ PROGRESS_STALE_S = int(os.environ.get("FLEET_PROGRESS_STALE_S", 1800))
 # leader every session; incident 2026-07-09: 06's notifier was never armed, so finished
 # tasks sat at done·pending-QA until the human asked why. Forgetting to arm now alarms.
 QA_ENTRY_STALE_S = int(os.environ.get("FLEET_QA_ENTRY_STALE_S", 600))
+# Running card whose LOG FILE is empty/unmodified for this long → card_log_silent alert.
+# Incident 2026-07-09 #2: a grid driver ticked progress fine but wrote NOTHING to its master
+# log for the whole run (per-run output went to run dirs; stdout had one final print) — the
+# drawer stayed blank and neither card_unobservable (log field fine) nor card_no_progress
+# (ticks flowing) could see it. Silent-but-alive logs now alarm.
+LOG_SILENT_S = int(os.environ.get("FLEET_LOG_SILENT_S", 1800))
 
 
 def _pid_alive(pid) -> bool:
@@ -159,6 +165,20 @@ def check_health(fleet_home=None, projects=None, free_bytes=None) -> list:
                                    "detail": f"{root}: running card '{c.get('id')}' has "
                                              f"{'no log field' if not lg else 'a dead log path'}"})
                     continue
+                # Log wired but SILENT: empty or not written for LOG_SILENT_S while the card
+                # runs → the drawer is de-facto blind even though every field checks out.
+                try:
+                    st = lp.stat()
+                    # mtime-based so a freshly created (still empty) log gets the full grace
+                    # window before alarming — O_APPEND writes bump mtime.
+                    if time.time() - st.st_mtime > LOG_SILENT_S:
+                        alerts.append({"type": "card_log_silent",
+                                       "detail": f"{root}: running card '{c.get('id')}' log "
+                                                 f"{'is EMPTY and ' if st.st_size == 0 else ''}"
+                                                 f"unwritten >{LOG_SILENT_S//60}min — runner "
+                                                 f"stdout is mute; add per-unit narration"})
+                except Exception:
+                    pass
                 # % watchdog: a wired log but NO progress tick for PROGRESS_STALE_S means the
                 # runner never calls fleet_progress/progress_tick — the % column stays blank
                 # forever and nobody notices until the leader asks. Alert so the tick call gets

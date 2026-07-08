@@ -105,6 +105,31 @@ class TestUnobservableAlert:
         alerts = self._no_progress_alerts(root)
         assert len(alerts) == 1 and "no progress tick" in alerts[0]["detail"]
 
+    def _log_silent_alerts(self, root):
+        return [a for a in fleet_health.check_health(root / "nonexistent-fleet-home",
+                                                     [{"root": str(root)}])
+                if a["type"] == "card_log_silent"]
+
+    def test_silent_log_alerts_fresh_log_quiet(self, tmp_path):
+        import os as _os
+        import time as _time
+        root = _mk_project(tmp_path)
+        lg = root / "experiments" / "logs" / "run.log"
+        lg.parent.mkdir(parents=True, exist_ok=True)
+        lg.write_text("")                                     # empty but FRESH → quiet (grace)
+        pdir = root / ".fleet" / "status" / "progress"
+        pdir.mkdir(parents=True)
+        (pdir / "g.json").write_text('{"stage":"x"}')         # ticks flowing (the incident shape)
+        (root / ".fleet" / "status" / "board_cards.json").write_text(json.dumps(
+            {"cards": [{"id": "g", "status": "running", "log": "experiments/logs/run.log"}]}))
+        assert self._log_silent_alerts(root) == []
+        old = _time.time() - (fleet_health.LOG_SILENT_S + 60)
+        _os.utime(lg, (old, old))                             # stale-empty → alarm
+        alerts = self._log_silent_alerts(root)
+        assert len(alerts) == 1 and "EMPTY" in alerts[0]["detail"]
+        lg.write_text("line\n")                               # freshly written → quiet again
+        assert self._log_silent_alerts(root) == []
+
     def test_stale_tick_alerts_fresh_tick_quiet(self, tmp_path):
         import os as _os
         import time as _time

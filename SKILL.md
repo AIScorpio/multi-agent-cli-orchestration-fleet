@@ -267,6 +267,12 @@ reboot because it lived under /tmp). Every detached/leader-run background job MU
    [--log <path>] [--status running|done]` — one line per unit of work, no excuse to skip it.
 A card without a log field or progress file is a review-blocking defect at leader QA, same class
 as a missing acceptance predicate.
+4. **The runner's stdout must NARRATE — one line per unit of work** (run started/finished/
+   failed, with ids and elapsed). A driver that routes per-unit output to run dirs and keeps
+   stdout mute leaves the drawer log EMPTY for the whole run (incident 2026-07-09 #2: progress
+   ticks flowed, log field wired, drawer blank for a day-scale grid). Spec this as an
+   acceptance criterion for every long-run driver task; the `card_log_silent` watchdog
+   (fleet_health) names any running card whose log goes unwritten past the grace window.
 
 ```bash
 python3 .fleet/orchestrator.py create-task \
