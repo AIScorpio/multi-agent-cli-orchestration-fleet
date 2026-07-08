@@ -35,5 +35,27 @@ while true; do
       *) echo "QA-PENDING $f"; seen="$seen$f " ;;
     esac
   done
+  # Detached BOARD CARDS reaching 'done' (pending leader approve-card) get the same
+  # entry guarantee as queue results — incident 2026-07-09: a done card sat invisible
+  # to this notifier because it only watched the queue dirs.
+  BC="$WORKSPACE/.fleet/status/board_cards.json"
+  if [ -f "$BC" ]; then
+    done_cards="$(python3 - "$BC" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    for c in json.load(open(sys.argv[1])).get("cards", []):
+        if c.get("status") == "done" and c.get("id"):
+            print(c["id"])
+except Exception:
+    pass
+PY
+)"
+    for cid in $done_cards; do
+      case "$seen" in
+        *" card:$cid "*) ;;
+        *) echo "CARD-QA-PENDING $cid"; seen="$seen card:$cid " ;;
+      esac
+    done
+  fi
   sleep "$POLL"
 done
